@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <title>苍泽便签</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="np">
+    <div class="np__shell">
+      <header class="np__bar">
+        <span class="np__count" id="count"></span>
+        <div class="np__actions">
+          <button class="np__btn" id="btn-add" title="新建便签">+</button>
+          <button class="np__btn" id="btn-manage" title="管理便签">&#8943;</button>
+          <button class="np__btn" id="btn-hide" title="隐藏 (Esc)">&#215;</button>
+        </div>
+      </header>
+      <main class="np__stage" id="stage"></main>
+    </div>
+    <script src="./notepad.js"></script>
+  </body>
+</html>

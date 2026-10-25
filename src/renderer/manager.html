@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <title>苍泽便签 · 管理</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="mg">
+    <header class="mg__head">
+      <div class="mg__brand">
+        <h1>便签管理</h1>
+        <p id="hint">按顺序逐张显示，先显示的排在最上面</p>
+      </div>
+      <div class="mg__tools">
+        <button class="mg__ghost" id="btn-size">卡片尺寸</button>
+        <button class="mg__primary" id="btn-new">新建便签</button>
+      </div>
+    </header>
+
+    <div class="mg__body">
+      <section class="mg__listwrap">
+        <ol class="mg__list" id="list"></ol>
+        <div class="mg__listempty" id="list-empty" hidden>
+          <p>还没有便签</p>
+          <span>点右上角「新建便签」开始记录</span>
+        </div>
+      </section>
+      <section class="mg__editor" id="editor"></section>
+    </div>
+
+    <details class="mg__archive" id="archive">
+      <summary>
+        <span>已完成</span>
+        <span class="mg__badge" id="archive-count">0</span>
+      </summary>
+      <ul class="mg__archivelist" id="archive-list"></ul>
+    </details>
+
+    <div class="mg__sizepanel" id="size-panel" hidden>
+      <label class="mg__row">
+        <span>宽度</span>
+        <input type="range" id="size-w" min="220" max="520" step="2" />
+        <output id="size-w-out">320</output>
+      </label>
+      <label class="mg__row">
+        <span>高度</span>
+        <input type="range" id="size-h" min="150" max="480" step="2" />
+        <output id="size-h-out">250</output>
+      </label>
+      <p class="mg__sizetip">便签窗口会跟着变，拖顶部那条可以移动位置</p>
+    </div>
+
+    <script src="./manager.js"></script>
+  </body>
+</html>

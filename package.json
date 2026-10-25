@@ -1,0 +1,20 @@
+{
+  "name": "cz-desktop-notes",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Stack-style desktop sticky notes: one card at a time, fold a corner to tear it off, the next one comes up.",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build.mjs && node tools/run.mjs",
+    "dev": "node build.mjs --watch",
+    "icon": "node tools/gen-icon.mjs && node tools/gen-ico.mjs",
+    "dist": "node build.mjs && node tools/pack.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "electron": "^42.3.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

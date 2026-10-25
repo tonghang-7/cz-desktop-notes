@@ -1,0 +1,19 @@
+node_modules/
+dist/
+release/
+*.log
+.DS_Store
+Thumbs.db
+
+# 工程文档与验收脚本只在本地保留，不随仓库发布
+docs/
+tools/test-cases.mjs
+tools/test-manager.mjs
+tools/shot.mjs
+tools/verify-esc.mjs
+tools/bench.mjs
+tools/seed-data.json
+tools/probe-canvas/
+
+# 录制演示 GIF 的中间产物
+.gifframes/
