@@ -12,7 +12,7 @@ A single always-on-top window that shows one note at a time. Grab a corner, fold
 - **Fold to dismiss.** Grab anywhere and drag inward. The crease runs perpendicular to `grab point → card centre` and follows your pull. Past 42% of the card diagonal it tears off — before that it springs back.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
 
-Windows 10+ · portable build, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it.
+Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it.
 
 <sub>Fold rendering uses Chromium's experimental `CanvasDrawElement`; where unavailable it silently falls back to a CSS 3D flip, so the app still works.</sub>
 
@@ -26,7 +26,15 @@ Windows 10+ · portable build, no installer · no account, no network, no teleme
 
 ## 获取
 
-暂无预编译包，从源码构建（需要 Node.js）：
+### 直接下载（Windows）
+
+到 [Releases](https://github.com/tonghang-7/cz-desktop-notes/releases) 下载 `CZNotes-win64.zip`，**解压整个文件夹**，双击里面的 `CZNotes.exe` 运行。不需要安装。
+
+> `CZNotes.exe` 不能单独拷出来跑 —— 它依赖同一目录下的 `icudtl.dat`、`resources\app` 等文件。
+
+### 从源码构建
+
+需要 Node.js：
 
 ```bash
 npm install
