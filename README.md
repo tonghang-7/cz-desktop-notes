@@ -151,7 +151,8 @@ npm run pack       # 打成 release/CZNotes-win64.zip，并打印 sha256
 
 - **仅 Windows**，多显示器与高 DPI 未适配
 - 折叠依赖 Chromium 实验特性，API 若被移除会降级为 `rotateX` 掀纸
-- 数据文件损坏后无备份，下次写入即覆盖
+- 数据文件读不出来时会先另存一份 `data.json.corrupt-<时间>.bak` 再让你选（以空库启动 / 退出），
+  原文件不会被覆盖；但如果它来自更新版本的程序，整个程序会转成只读
 - 归档不会自动清理
 - 无开机自启
-- 打包体积 353MB、常驻内存约 278MB，是 Electron 运行时的固有成本
+- 打包体积 357MB、常驻内存约 280MB，是 Electron 运行时的固有成本
