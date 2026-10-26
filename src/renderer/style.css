@@ -764,9 +764,16 @@ body.mg {
 .mg__hotkeyval {
   flex: 1 1 auto;
   text-align: left;
+  white-space: nowrap;
+  font-size: 11.5px;
 }
 
 .mg__ghost.is-recording {
   border-color: #b45309;
   color: #b45309;
+}
+
+.mg__row .mg__ghost {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }

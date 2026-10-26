@@ -545,6 +545,8 @@ async function boot() {
     : '热键未绑定成功，可从托盘图标呼出';
   cfgAutoLaunch.checked = await window.api.getAutoLaunch();
   cfgDataDir.textContent = await window.api.getDataDir();
+  // 面板宽度有限，路径会被截断 —— 完整的悬停可见
+  cfgDataDir.title = cfgDataDir.textContent;
 
   window.api.onDbChanged((next) => {
     db = next;
