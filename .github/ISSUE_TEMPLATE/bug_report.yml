@@ -1,0 +1,73 @@
+name: 反馈一个 bug
+description: 程序出问题了、或者跟你想的不一样
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        谢谢反馈。先说一句：如果你下载的是 `CZNotes-win64.zip`，
+        **必须把整个文件夹解压出来**再运行里面的 `CZNotes.exe`。
+        单独把 exe 拷出来是跑不起来的（它依赖同目录的运行时文件）。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: Release 页面上的版本号，比如 v0.3.0
+      placeholder: v0.3.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 你是怎么跑的
+      options:
+        - 下载 zip 后解压整个文件夹，运行里面的 CZNotes.exe
+        - 只把 CZNotes.exe 单独拷出来运行
+        - 从源码构建运行（npm run start）
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 你做了什么，然后看到了什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你期望发生什么
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 有没有报错日志
+      description: |
+        双击后如果一闪而过，exe 旁边会留下一个 `debug.log`，把内容贴上来。
+        没有就写「无」。
+    validations:
+      required: false
+
+  - type: textarea
+    id: data
+    attributes:
+      label: 数据还在吗
+      description: |
+        笔记存在 `%APPDATA%\cz-desktop-notes\data.json`。
+        这个文件还在吗？里面的内容还在吗？（报 bug 时请先备份它）
+    validations:
+      required: false

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # 这是 Windows 专属应用，Electron 运行时和打包产物都只能在 Windows 上产出
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Electron 42 起改成「按需下载」：npm install 不会把运行时拉下来，
+      # 第一次跑 electron 命令时才下载。CI 里必须显式触发，否则 pack 阶段找不到 dist。
+      - name: 下载 Electron 运行时
+        run: node node_modules/electron/install.js
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 单元测试
+        run: npm test
+
+      - name: 组装免安装版
+        run: npm run dist
+
+      - name: 校验产物完整性
+        run: node tools/verify-dist.mjs
+
+      - name: 打包 zip 并做解压复现测试
+        run: node tools/pack-zip.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CZNotes-win64
+          path: release/CZNotes-win64.zip
+          if-no-files-found: error

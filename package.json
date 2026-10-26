@@ -9,12 +9,28 @@
     "start": "node build.mjs && node tools/run.mjs",
     "dev": "node build.mjs --watch",
     "icon": "node tools/gen-icon.mjs && node tools/gen-ico.mjs",
-    "dist": "node build.mjs && node tools/pack.mjs"
+    "typecheck": "tsc --noEmit",
+    "test": "node build.mjs && node --test \"test/**/*.test.mjs\"",
+    "dist": "node build.mjs && node tools/pack.mjs",
+    "pack": "node tools/pack-zip.mjs",
+    "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "electron": "^42.3.3",
+    "electron": "^45.0.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tonghang-7/cz-desktop-notes.git"
+  },
+  "homepage": "https://github.com/tonghang-7/cz-desktop-notes#readme",
+  "bugs": {
+    "url": "https://github.com/tonghang-7/cz-desktop-notes/issues"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

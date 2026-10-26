@@ -1,0 +1,23 @@
+version: 2
+
+updates:
+  # Electron 是唯一有安全更新节奏的依赖：大版本每 8 周一期，
+  # 官方只支持最新 3 个稳定版，落后的版本不再有安全补丁。
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    groups:
+      # 补丁和小版本合一个 PR，噪音小
+      dev-patch:
+        applies-to: version-updates
+        update-types: ["patch", "minor"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["ci", "dependencies"]
