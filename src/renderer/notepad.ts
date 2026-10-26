@@ -41,6 +41,16 @@ const FOLD_OK =
 // 本次运行整体降级到掀纸动画。宁可观感弱，也不要让卡片在手势里变成空白。
 let foldBroken = false;
 
+/**
+ * 每重画一次就换一张卡，上一轮手势的异步任务必须自己闭嘴。
+ *
+ * 背景：重画会把上一轮那张卡连同它的折纸画布一起从 DOM 里摘掉。
+ * 排在那儿等着抓图的预热任务醒来时，元素已经不在页面上了，
+ * drawElementImage 只会报一句「No cached paint record」。
+ * 少了这个代号检查，一次陈旧的预热失败就会把整轮折纸判死。
+ */
+let renderGen = 0;
+
 let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
 
 // 三个状态位的关系：
@@ -152,7 +162,10 @@ function render() {
     stage.appendChild(canvas);
   }
 
-  attachGesture(card, canvas, shot, top);
+  // 这一轮的手势、预热抓图都绑定在这个代号上。render 之后旧代号自动作废。
+  const gen = ++renderGen;
+
+  attachGesture(card, canvas, shot, top, gen);
   lastTopId = top.id;
 }
 
@@ -160,8 +173,11 @@ function attachGesture(
   card: HTMLElement,
   canvas: HTMLCanvasElement | null,
   shot: HTMLElement | null,
-  note: Note
+  note: Note,
+  gen: number
 ) {
+  /** 这一轮是不是已经被下一次重画换掉了 */
+  const alive = () => gen === renderGen;
   // 用 let：抓图连续失败时要能把它置空，当场切回掀纸路径。
   let fold = FOLD_OK && !foldBroken && canvas && shot ? { canvas, shot } : null;
   const ctx = fold ? fold.canvas.getContext('2d') : null;
@@ -334,13 +350,19 @@ function attachGesture(
    * 离屏 canvas 并清空，否则画布上会一直留着一份和原卡片重叠的图像，看起来像「变大了」。
    * 另外元素首次绘制完成前调用会抛 No cached paint record，所以带重试。
    */
-  const capture = async () => {
+  const capture = async (fromGesture: boolean) => {
     if (!fold || !ctx || capturing) return;
+    // 这一轮已经被重画换掉的话，抓到的图也没意义，直接放弃。
+    if (!alive()) return;
     capturing = true;
     const anyCtx = ctx as unknown as {
       drawElementImage(el: Element, dx: number, dy: number, dw?: number, dh?: number): unknown;
     };
     for (let i = 0; i < 20; i++) {
+      if (!alive()) {
+        capturing = false;
+        return;
+      }
       try {
         ctx.clearRect(0, 0, W, H);
         await anyCtx.drawElementImage(
@@ -360,18 +382,29 @@ function attachGesture(
         ctx.clearRect(0, 0, W, H);
         if (active) paint(gx, gy, nx, ny, curDist);
         return;
-      } catch {
+      } catch (err) {
+        // 只报第一次：20 次重试全打出来会把终端刷爆
+        if (i === 0) {
+          const e = err as { name?: string; message?: string };
+          console.warn(
+            `[fold] 抓图失败（${fromGesture ? '手势中' : '预热'}）：${e?.name ?? 'Error'} ${e?.message ?? String(err)}`
+          );
+        }
         await new Promise((r) => window.setTimeout(r, 40));
       }
     }
     capturing = false;
+    // 预热抓不到不算事：多半是这一轮画布刚建、绘制记录还没生成，下次手势再抓就是了。
+    // 只有用户正在拖、却怎么也抓不到，才说明折叠这条路真的走不通。
+    if (!fromGesture) return;
+    if (!alive()) return;
     // 重试到底还是抓不到图：判定这条路径不可用，本次运行改走掀纸动画。
     // 折叠分支会把真卡片 opacity 置 0，切回去之前必须放回来，否则卡片是隐形的。
     foldBroken = true;
     fold = null;
     card.style.opacity = '';
     canvas?.remove();
-    console.warn('[fold] 抓图连续失败，本次运行降级为掀纸动画');
+    console.warn('[fold] 手势中抓图连续失败，本次运行降级为掀纸动画');
   };
 
   const animateFold = (target: number, ms: number, done?: () => void) => {
@@ -429,7 +462,7 @@ function attachGesture(
       ny = dy0 / dl;
       curDist = 0;
       ctx?.clearRect(0, 0, W, H);
-      if (!bitmap) void capture();
+      if (!bitmap) void capture(true);
     } else {
       card.style.transition = '';
     }
@@ -535,7 +568,13 @@ function attachGesture(
 
   activeFinish = finish;
 
-  if (fold) window.setTimeout(() => void capture(), 60);
+  // 预热：趁用户还没动手，先把卡片抓成位图备着。
+  // 失败不致命 —— 抓不到就等用户真的开始拖时再抓。
+  if (fold) {
+    window.setTimeout(() => {
+      if (alive()) void capture(false);
+    }, 60);
+  }
 }
 
 async function addNote() {

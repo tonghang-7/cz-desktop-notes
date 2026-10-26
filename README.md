@@ -131,7 +131,8 @@ npm run pack       # 打成 release/CZNotes-win64.zip，并打印 sha256
 **折叠依赖一个实验 API。**
 把真卡片渲染进 canvas 用的是 Chromium 的 HTML-in-Canvas（`ctx.drawElementImage`），通过 `--enable-features=CanvasDrawElement` 开启。检测不到这个 API 时自动回落到 `rotateX` 掀纸动画，功能降级但界面不会坏。
 
-它是实验特性，实测在 Electron 42 / Chromium 148 与 Electron 45 / Chromium 156 上都能用，三条结果、两个必踩的坑一并记在这里：
+它是实验特性。Electron 42 / Chromium 148 上直接可用；升到 Electron 45 / Chromium 156 时踩到一个新坑，
+得靠「重画代号」兜住才不出错（见下面的坑三），修好后同样可用。三条结果、三个坑一并记在这里：
 
 | 结论 | 影响 |
 | --- | --- |
@@ -142,6 +143,10 @@ npm run pack       # 打成 release/CZNotes-win64.zip，并打印 sha256
 坑一：元素放进 `layoutsubtree` 后仍会在页面上自行渲染，而且忽略 `position`。要挪走它只有 `transform: translateX(-2000px)` 有效 —— `opacity: 0` 会让绘制记录消失，`visibility: hidden`、`margin-left`、`clip-path: inset(100%)` 全都画不出内容。
 
 坑二：首次绘制完成前调用会抛 `No cached paint record for element`，必须带重试（50ms 间隔，上限 25 次）。另外别用 `requestAnimationFrame` 等待 —— 在某些上下文里它不触发。
+
+坑三：**重画会把上一张卡连同它的折纸画布一起从 DOM 里摘掉**（`stage.innerHTML = ''`）。排在那儿等着抓图的预热任务醒来时，元素已经不在页面上了，于是抛出的是同一个 `No cached paint record` 错误 —— 但含义完全不同：不是「绘制记录还没生成」，而是「元素已经没了」。
+把这种失败当成「这条路彻底走不通」，整轮折纸就被误判成不可用，之后每一次拖动都只剩掀纸动画。
+所以重画时给这一轮标一个代号（`renderGen`），旧任务醒来先看自己是不是已经过期，过期就安静退出；只有用户正在拖、却怎么也抓不到，才判定折叠不可用并降级。
 
 ## 已知限制
 
