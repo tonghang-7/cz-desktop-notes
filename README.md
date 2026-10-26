@@ -1,5 +1,7 @@
 # 苍泽便签 · CZ Desktop Notes
 
+[![CI](https://github.com/tonghang-7/cz-desktop-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/tonghang-7/cz-desktop-notes/actions/workflows/ci.yml)
+
 ![Grab a corner, fold it inward — past the crease it tears off and the next note comes up](media/demo.gif)
 
 A desktop sticky note for the small stuff you would otherwise lose — a question you haven't figured out yet, a reminder you can't afford to forget.
@@ -88,14 +90,21 @@ npm run dist
 
 ```bash
 npm install
-npm run start     # 构建并启动
-npm run build     # 只构建
-npm run dist      # 组装免安装版到 release/CZNotes/
+npm run start      # 构建并启动
+npm run build      # 只构建
+npm run typecheck  # 类型检查
+npm test           # 单元测试（数据格式层：版本迁移、损坏保护）
+npm run dist       # 组装免安装版到 release/CZNotes/
+npm run pack       # 打成 release/CZNotes-win64.zip，并打印 sha256
 ```
 
 `npm run dist` 走的是 `tools/pack.mjs`：把 Electron 运行时复制一份，重命名为 `CZNotes.exe`，再把 `dist/` + `assets/` + 精简后的 `package.json` 放进 `resources/app/`。等价于 electron-builder 的 `--dir` 产物，但不依赖它。整个 `release/CZNotes/` 目录拷到任何地方都能双击运行，数据存在 `%APPDATA%`，不在程序目录。
 
-`tools/` 下是构建脚本：`pack.mjs` 组装免安装版，`run.mjs` 启动，`gen-icon.mjs` / `gen-ico.mjs` 生成图标。
+`npm run pack` 走的是 `tools/pack-zip.mjs`：先校验关键文件齐不齐（缺 `icudtl.dat` 之类直接报错），再压缩，并**解压到干净目录做一次复现测试**。发布物必须经过它 —— 单独一个 `CZNotes.exe` 是跑不起来的。
+
+`tools/` 下是构建脚本：`pack.mjs` 组装免安装版，`pack-zip.mjs` 打包并复现测试，`verify-dist.mjs` 校验产物完整性，`run.mjs` 启动，`gen-icon.mjs` / `gen-ico.mjs` 生成图标。
+
+发版流程见 [`.github/RELEASING.md`](.github/RELEASING.md)。
 
 ## 几个实现上的取舍
 
@@ -122,7 +131,7 @@ npm run dist      # 组装免安装版到 release/CZNotes/
 **折叠依赖一个实验 API。**
 把真卡片渲染进 canvas 用的是 Chromium 的 HTML-in-Canvas（`ctx.drawElementImage`），通过 `--enable-features=CanvasDrawElement` 开启。检测不到这个 API 时自动回落到 `rotateX` 掀纸动画，功能降级但界面不会坏。
 
-它是实验特性，实测在 Electron 42 / Chromium 148 上的三条结果，以及两个必踩的坑，一并记在这里：
+它是实验特性，实测在 Electron 42 / Chromium 148 与 Electron 45 / Chromium 156 上都能用，三条结果、两个必踩的坑一并记在这里：
 
 | 结论 | 影响 |
 | --- | --- |
