@@ -30,7 +30,8 @@ const RX_MAX = 82; // 最大掀角。不到 90°，所以永远看不到纸背
 const FOLD_PAD = 36; // canvas 四周留白，折出去的部分和阴影要地方画
 const FOLD_RATIO = 0.42; // 摘除阈值 = 卡片对角线 × 0.42
 const FOLD_DAMP = 0.85; // 手指走 100px，折痕只推进 85px
-const FLAT = 1.5; // 折角小于这个距离就算摊平：画布不再画折角，改由真卡片接管
+const FLAT = 1.5; // 折角小于这个距离就算摊平：画布改成画整张摊平的纸
+const FLAT_HIDE = 3; // 画布接管真卡片的门槛。比 FLAT 大一点，避免临界处来回抖。
 const REBOUND_MIN = 90; // 回弹最快也要这么长（ms），折得浅时一收手就平才不至于闪
 const REBOUND_MAX = 280; // 再深也不超过这个时长
 const REBOUND_PER_PX = 1.1; // 每折深 1px，回弹多花 1.1ms
@@ -274,10 +275,11 @@ function attachGesture(
     if (!ctx) return;
     if (!bitmap) return;
     if (dist < FLAT) {
-      // 折角已经摊平到看不出区别。这里只停笔，**不清画布**：
-      // 画布上留着上一帧那张接近摊平的折角，动画结束时真卡片会无缝接管它。
-      // 但绝不能在这里把真卡片放回来 —— 残影是折着的，卡片是完整的，
-      // 两者叠在一起就是「缺的那个角被补上了」，而折角其实还在。
+      // 折角小到看不出区别了：直接把整张位图画上去 —— 那就是「完全摊平的纸」。
+      // 这里不能什么都不画：早退会让画布空掉，而真卡片这时往往还隐藏着，
+      // 两边都不在 → 整张便签凭空消失。
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(bitmap, 0, 0);
       return;
     }
     ctx.clearRect(0, 0, W, H);
@@ -544,10 +546,12 @@ function attachGesture(
       // max(0) 兜住，等于完全不折 —— 折角只会朝卡片内部长大。
       const proj = (cx - gx) * nx + (cy - gy) * ny;
       curDist = Math.max(0, proj) * FOLD_DAMP;
-      // 画布在画折角时，真卡片必须让位；两者同框就是「缺的那个角被补上了」。
-      // 阈值跟 paint 里的 FLAT 保持一致，别用两个数各判各的。
-      if (curDist > FLAT && bitmap) card.style.opacity = '0';
       if (bitmap) paint(gx, gy, nx, ny, curDist);
+      // 画布接管真卡片：折角看得见时把卡片藏起来（两者同框就是重影）；
+      // 折角摊平后把卡片放回来 —— 画布上那张摊平的位图和它完全重合，看不出差别。
+      // 两个门槛故意不一样（3 和 1.5）：用同一个的话，在临界处来回抖就会闪。
+      if (curDist > FLAT_HIDE) card.style.opacity = '0';
+      else if (curDist < FLAT) card.style.opacity = '';
       return;
     }
 
@@ -629,17 +633,18 @@ function attachGesture(
       const span = Math.max(0, curDist - FLAT);
       const ms = Math.max(REBOUND_MIN, Math.min(REBOUND_MAX, span * REBOUND_PER_PX));
       animateFold(
-        Math.min(FLAT, curDist),
+        0,
         ms,
         () => {
           interacting = false;
-          // 先把真卡片放回来。画布上残留的那张位图和真卡片完全重合，看不出重影；
-          // 反过来（先清画布、后显示卡片）中间会空一帧 —— 看起来就是「闪一下再出现」。
+          // 把真卡片放回来。画布上那张摊平的位图和真卡片完全重合，看不出重影。
+          //
+          // 这里刻意不清画布：清了就多一次「画布空掉、真卡片还没回来」的跳变，
+          // 那一下就是肉眼看到的闪烁。画布残留没关系 ——
+          // 下次 pointerdown 会先 clearRect，下次 render 会把它整个清掉，
+          // 而且它是 pointer-events: none，压在卡片上也不挡任何操作。
           card.style.opacity = '';
-          requestAnimationFrame(() => {
-            ctx?.clearRect(0, 0, W, H);
-            if (pendingRender) render();
-          });
+          if (pendingRender) render();
         },
         easeLinear
       );
