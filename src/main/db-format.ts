@@ -65,6 +65,8 @@ function normalizeNote(raw: unknown): Note | null {
     color: isColor(r.color) ? r.color : 'amber',
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),
     doneAt: typeof r.doneAt === 'number' ? r.doneAt : null,
+    dueAt: typeof r.dueAt === 'number' ? r.dueAt : null,
+    dueSetAt: typeof r.dueSetAt === 'number' ? r.dueSetAt : null,
   };
 }
 

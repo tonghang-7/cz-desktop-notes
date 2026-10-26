@@ -156,7 +156,37 @@ function renderList() {
   });
 }
 
+/** 今晚 24:00，也就是明天 0 点 */
+function tonightAt(): number {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 明天 9:00 */
+function tomorrowAt(): number {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  return d.getTime();
+}
+
+function fmtDue(dueAt: number | null): string {
+  if (dueAt === null) return '没设时限';
+  const left = dueAt - Date.now();
+  if (left <= 0) return '已过期';
+  const m = Math.round(left / 60_000);
+  if (m < 60) return `剩 ${m} 分钟`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `剩 ${h} 小时 ${m % 60} 分` : `剩 ${h} 小时`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `剩 ${d} 天 ${h % 24} 小时` : `剩 ${d} 天`;
+}
+
 function updateEditorMeta(note: Note) {
+  const dueVal = editor.querySelector<HTMLElement>('.ed__dueval');
+  if (dueVal) dueVal.textContent = fmtDue(note.dueAt);
+
   const pos = editor.querySelector('[data-role="pos"]');
   if (!pos) return;
   const idx = db.notes.findIndex((n) => n.id === note.id);
@@ -238,6 +268,45 @@ function renderEditor() {
     if (id) flushSave(id, ta.value);
   });
 
+  // 时限：四个粗粒度预设 + 清除。便签的时限本来就是「今天/明天/一小时内」这种粒度，
+  // 给个日期选择器只会让人站在那儿纠结几点合适。
+  const dueRow = document.createElement('div');
+  dueRow.className = 'ed__due';
+
+  const dueTag = document.createElement('span');
+  dueTag.className = 'ed__duetag';
+  dueTag.textContent = '时限';
+
+  const dueVal = document.createElement('span');
+  dueVal.className = 'ed__dueval';
+  dueVal.textContent = fmtDue(note.dueAt);
+
+  const presets: { label: string; at: () => number }[] = [
+    { label: '1 小时', at: () => Date.now() + 3_600_000 },
+    { label: '3 小时', at: () => Date.now() + 3 * 3_600_000 },
+    { label: '今晚', at: tonightAt },
+    { label: '明天 9 点', at: tomorrowAt },
+  ];
+
+  const applyDue = (at: number | null) => {
+    void window.api.setDue(note.id, at);
+    dueVal.textContent = fmtDue(at);
+  };
+
+  dueRow.appendChild(dueTag);
+  for (const p of presets) {
+    const b = document.createElement('button');
+    b.className = 'ed__duebtn';
+    b.textContent = p.label;
+    b.addEventListener('click', () => applyDue(p.at()));
+    dueRow.appendChild(b);
+  }
+  const clearDue = document.createElement('button');
+  clearDue.className = 'ed__duebtn';
+  clearDue.textContent = '清除';
+  clearDue.addEventListener('click', () => applyDue(null));
+  dueRow.append(clearDue, dueVal);
+
   const foot = document.createElement('div');
   foot.className = 'ed__foot';
 
@@ -251,7 +320,7 @@ function renderEditor() {
   doneBtn.addEventListener('click', () => void completeNote(note.id));
 
   foot.append(saved, doneBtn);
-  wrap.append(meta, ta, foot);
+  wrap.append(meta, ta, dueRow, foot);
   editor.appendChild(wrap);
 
   updateEditorMeta(note);

@@ -14,6 +14,11 @@ const api = {
   reorderNotes: (ids: string[]): Promise<void> => ipcRenderer.invoke('notes:reorder', ids),
   updateSettings: (patch: Partial<Settings>): Promise<Settings> =>
     ipcRenderer.invoke('settings:update', patch),
+  /** dueAt 传 null 表示清掉时限 */
+  setDue: (id: string, dueAt: number | null): Promise<void> =>
+    ipcRenderer.invoke('note:due', id, dueAt),
+  notify: (title: string, body: string): Promise<void> =>
+    ipcRenderer.invoke('ui:notify', title, body),
   /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */
   openManager: (fromCard?: boolean): Promise<void> =>
     ipcRenderer.invoke('ui:open-manager', fromCard),

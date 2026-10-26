@@ -96,6 +96,21 @@ test('迁移新增了没人接的字段：直接报错，不静默丢字段', ()
   assert.match(state.reason, /pinned/);
 });
 
+test('normalizeDb：老数据没有时限字段，补成 null', () => {
+  const db = normalizeDb(validDb());
+  assert.equal(db.notes[0].dueAt, null);
+  assert.equal(db.notes[0].dueSetAt, null);
+});
+
+test('normalizeDb：设了时限的 dueAt / dueSetAt 要留住', () => {
+  const raw = validDb();
+  raw.notes[0].dueAt = 1_700_000_000_000;
+  raw.notes[0].dueSetAt = 1_699_999_000_000;
+  const db = normalizeDb(raw);
+  assert.equal(db.notes[0].dueAt, 1_700_000_000_000);
+  assert.equal(db.notes[0].dueSetAt, 1_699_999_000_000);
+});
+
 test('normalizeDb：老数据没有 autoLaunch，补成默认的 false', () => {
   const db = normalizeDb(validDb());
   assert.equal(db.settings.autoLaunch, false);

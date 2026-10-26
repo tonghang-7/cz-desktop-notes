@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from 'electron';
+import { app, dialog, ipcMain, Notification, shell } from 'electron';
 import path from 'node:path';
 import * as store from './store';
 import { DB_VERSION } from './db-format';
@@ -67,6 +67,15 @@ function registerIpc() {
   ipcMain.handle('notes:reorder', (_e, ids: string[]) => {
     store.reorderNotes(ids);
     W.broadcastDb();
+  });
+
+  ipcMain.handle('note:due', (_e, id: string, dueAt: number | null) => {
+    store.setNoteDue(id, dueAt);
+    W.broadcastDb();
+  });
+
+  ipcMain.handle('ui:notify', (_e, title: string, body: string) => {
+    if (Notification.isSupported()) new Notification({ title, body }).show();
   });
 
   ipcMain.handle('settings:update', (_e, patch: Partial<Settings>) => {

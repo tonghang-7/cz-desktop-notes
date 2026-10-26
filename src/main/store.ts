@@ -281,6 +281,8 @@ export function createNote(partial: { text?: string; color?: NoteColor } = {}): 
     color: partial.color ?? 'amber',
     createdAt: Date.now(),
     doneAt: null,
+    dueAt: null,
+    dueSetAt: null,
   };
   mutate((d) => {
     d.notes.push(note);
@@ -294,6 +296,19 @@ export function updateNote(id: string, patch: { text?: string; color?: NoteColor
     if (!note) return;
     if (typeof patch.text === 'string') note.text = patch.text;
     if (isColor(patch.color)) note.color = patch.color;
+  });
+}
+
+/**
+ * 设 / 清时限。dueSetAt 记的是「设的那一刻」——
+ * 便签窗那条细线要靠 (dueAt - now) / (dueAt - dueSetAt) 算剩余比例，少了它画不出来。
+ */
+export function setNoteDue(id: string, dueAt: number | null) {
+  mutate((d) => {
+    const note = d.notes.find((n) => n.id === id);
+    if (!note) return;
+    note.dueAt = dueAt;
+    note.dueSetAt = dueAt === null ? null : Date.now();
   });
 }
 

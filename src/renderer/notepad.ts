@@ -92,7 +92,64 @@ function buildCard(note: Note): HTMLElement {
     text.classList.add('card__text--empty');
   }
   el.appendChild(text);
+
+  // 时限细线：一条浅色轨道 + 一条暖色剩余量，缩到 0 就是到期
+  const due = document.createElement('div');
+  due.className = 'card__due';
+  due.hidden = true;
+  const dueLine = document.createElement('span');
+  dueLine.className = 'card__due-line';
+  due.appendChild(dueLine);
+  el.appendChild(due);
+
   return el;
+}
+
+/** 已经因为到期抖过 / 通知过的卡片。重启会重来一次，可以接受。 */
+const dueFired = new Set<string>();
+
+/**
+ * 更新一张卡的时限细线。
+ *
+ * 只改 width 和 class，绝不重建 DOM —— 重建会把正在进行的折纸手势打断。
+ * 比例要 (到期 - 现在) / (到期 - 设定时刻)，所以 note 里专门存了 dueSetAt。
+ */
+function paintDue(el: HTMLElement, note: Note, now: number) {
+  const due = el.querySelector<HTMLElement>('.card__due');
+  const line = el.querySelector<HTMLElement>('.card__due-line');
+  if (!due || !line) return;
+
+  if (note.dueAt === null) {
+    due.hidden = true;
+    el.classList.remove('is-overdue');
+    return;
+  }
+
+  due.hidden = false;
+  const span = Math.max(1, note.dueAt - (note.dueSetAt ?? note.dueAt - 1));
+  const left = note.dueAt - now;
+  const ratio = Math.max(0, Math.min(1, left / span));
+  line.style.width = `${(ratio * 100).toFixed(2)}%`;
+
+  const overdue = left <= 0;
+  el.classList.toggle('is-overdue', overdue);
+
+  if (!overdue || dueFired.has(note.id)) return;
+  dueFired.add(note.id);
+  el.classList.add('is-shake');
+  window.setTimeout(() => el.classList.remove('is-shake'), 420);
+  void window.api.notify('这张便签到期了', note.text.trim().slice(0, 60) || '（空白便签）');
+}
+
+/** 每秒刷一次细线。手势进行中跳过：那时真卡片是隐藏的，改样式也没意义。 */
+function startDueTicker() {
+  window.setInterval(() => {
+    if (interacting || flipping) return;
+    const el = stage.querySelector<HTMLElement>('article.card');
+    const top = db.notes[0];
+    if (!el || !top) return;
+    paintDue(el, top, Date.now());
+  }, 1000);
 }
 
 function buildPeek(note: Note, i: number): HTMLElement {
@@ -144,6 +201,7 @@ function render() {
   const card = buildCard(top);
   if (top.id !== lastTopId) card.classList.add('enter');
   stage.appendChild(card);
+  paintDue(card, top, Date.now());
 
   let canvas: HTMLCanvasElement | null = null;
   let shot: HTMLElement | null = null;
@@ -699,6 +757,7 @@ async function boot() {
   applyVars();
   render();
   wire();
+  startDueTicker();
 
   window.api.onDbChanged((next) => {
     db = next;

@@ -777,3 +777,104 @@ body.mg {
   flex: 0 0 auto;
   white-space: nowrap;
 }
+
+/* ── 时限：卡片右下角一条会缩的细线 ── */
+.card__due {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  width: 38%;
+  max-width: 140px;
+  height: 2px;
+  display: flex;
+  justify-content: flex-end;
+  border-radius: 1px;
+  background: rgba(120, 90, 30, 0.09);
+  pointer-events: none;
+}
+
+.card__due-line {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: #c2410c;
+  opacity: 0.8;
+  transition: width 900ms linear;
+}
+
+.card.is-overdue {
+  outline: 2px solid rgba(221, 166, 63, 0.75);
+  outline-offset: -2px;
+  filter: sepia(0.16) brightness(0.985);
+}
+
+.card.is-overdue .card__due-line {
+  background: #b91c1c;
+  opacity: 1;
+}
+
+/* 抖动用独立的 translate 属性，不碰 transform —— 折纸和拖拽都在用 transform */
+.card.is-shake {
+  animation: due-shake 420ms ease-in-out 1;
+}
+
+@keyframes due-shake {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  20% {
+    translate: -2px 1px;
+  }
+  45% {
+    translate: 2px -1px;
+  }
+  70% {
+    translate: -1px 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.is-shake {
+    animation: none;
+  }
+  .card__due-line {
+    transition: none;
+  }
+}
+
+/* ── 管理窗里的时限行 ── */
+.ed__due {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+
+.ed__duetag {
+  flex: 0 0 auto;
+  color: rgba(60, 53, 39, 0.45);
+}
+
+.ed__duebtn {
+  padding: 3px 8px;
+  border: 0.5px solid rgba(60, 53, 39, 0.18);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11.5px;
+  color: rgba(60, 53, 39, 0.7);
+  cursor: pointer;
+}
+
+.ed__duebtn:hover {
+  border-color: rgba(180, 83, 9, 0.5);
+  color: #b45309;
+}
+
+.ed__dueval {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: rgba(60, 53, 39, 0.45);
+}

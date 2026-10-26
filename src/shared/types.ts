@@ -6,6 +6,10 @@ export interface Note {
   color: NoteColor;
   createdAt: number;
   doneAt: number | null;
+  /** 到期时刻；null 表示这张没设时限 */
+  dueAt: number | null;
+  /** 设时限的那一刻。画「还剩多少」的细线要知道总时长，光有到期时间算不出比例 */
+  dueSetAt: number | null;
 }
 
 export interface Settings {
