@@ -20,7 +20,15 @@ const targets = [
     platform: 'node',
     target: 'node22',
     format: 'cjs',
-    external: ['electron'],
+    external: ['electron', './db-format'],
+  },
+  {
+    // 单独出一份给 node --test 用：db-format 不依赖 electron，测试要能直接 require 它。
+    entryPoints: ['src/main/db-format.ts'],
+    outfile: 'dist/main/db-format.js',
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
   },
   {
     entryPoints: ['src/preload/index.ts'],

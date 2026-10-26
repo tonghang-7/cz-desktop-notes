@@ -3,7 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
-  DEFAULT_SETTINGS,
+  DB_VERSION,
+  emptyDb,
+  isColor,
+  parseDb,
+  type LoadState,
+} from './db-format';
+import {
   clampCardSize,
   type Note,
   type NoteColor,
@@ -11,61 +17,18 @@ import {
   type Settings,
 } from '../shared/types';
 
-const COLORS: NoteColor[] = ['amber', 'rose', 'sky', 'mint', 'violet'];
-
 let db: NoteDb = emptyDb();
 let dataFile = '';
 let saveTimer: NodeJS.Timeout | null = null;
 let dirty = false;
-
-function emptyDb(): NoteDb {
-  return { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
-}
+let loadState: LoadState = { kind: 'fresh' };
+/** 数据文件来自更新版本的程序时只读：任何写回都会把新结构降级成旧结构。 */
+let readOnly = false;
+/** 最近一次「读不懂就备份」的落盘位置，启动时告诉用户。 */
+let lastBackup: string | null = null;
 
 function newId() {
   return randomUUID();
-}
-
-function isColor(v: unknown): v is NoteColor {
-  return typeof v === 'string' && (COLORS as string[]).includes(v);
-}
-
-function normalizeNote(raw: unknown): Note | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  return {
-    id: typeof r.id === 'string' && r.id ? r.id : newId(),
-    text: typeof r.text === 'string' ? r.text : '',
-    color: isColor(r.color) ? r.color : 'amber',
-    createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),
-    doneAt: typeof r.doneAt === 'number' ? r.doneAt : null,
-  };
-}
-
-function normalizeSettings(raw: unknown): Settings {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const size = clampCardSize(
-    typeof r.cardWidth === 'number' ? r.cardWidth : DEFAULT_SETTINGS.cardWidth,
-    typeof r.cardHeight === 'number' ? r.cardHeight : DEFAULT_SETTINGS.cardHeight
-  );
-  return {
-    hotkey: typeof r.hotkey === 'string' && r.hotkey ? r.hotkey : DEFAULT_SETTINGS.hotkey,
-    cardWidth: size.cardWidth,
-    cardHeight: size.cardHeight,
-    windowX: typeof r.windowX === 'number' ? r.windowX : null,
-    windowY: typeof r.windowY === 'number' ? r.windowY : null,
-  };
-}
-
-function normalizeDb(raw: unknown): NoteDb {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const notes = Array.isArray(r.notes)
-    ? r.notes.map(normalizeNote).filter((n): n is Note => n !== null)
-    : [];
-  const archive = Array.isArray(r.archive)
-    ? r.archive.map(normalizeNote).filter((n): n is Note => n !== null)
-    : [];
-  return { version: 1, settings: normalizeSettings(r.settings), notes, archive };
 }
 
 export function initStore(): NoteDb {
@@ -76,13 +39,60 @@ export function initStore(): NoteDb {
     ? path.join(override, 'data.json')
     : path.join(app.getPath('userData'), 'data.json');
   if (!override) migrateLegacyData(dataFile);
+
+  let raw: string;
   try {
-    const raw = fs.readFileSync(dataFile, 'utf8');
-    db = normalizeDb(JSON.parse(raw));
+    raw = fs.readFileSync(dataFile, 'utf8');
   } catch {
+    // 第一次启动：目录里还没有 data.json。
     db = emptyDb();
+    loadState = { kind: 'fresh' };
+    return db;
+  }
+
+  const { state, db: loaded } = parseDb(raw);
+  loadState = state;
+
+  switch (state.kind) {
+    case 'corrupt': {
+      // 关键：读不懂就绝不能把空库写回去。先留一份原文件副本，再让上层决定怎么办。
+      const backup = backupUnreadable(raw);
+      console.error('[store] data.json 无法解析：', state.reason, backup ? `已备份到 ${backup}` : '备份失败');
+      db = emptyDb();
+      break;
+    }
+    case 'future': {
+      // 用户降级了程序：文件结构比这份代码新，只读不写。
+      readOnly = true;
+      console.warn(`[store] data.json 版本 v${state.version} 高于当前支持的 v${DB_VERSION}，已转为只读`);
+      db = emptyDb();
+      break;
+    }
+    case 'migrated': {
+      console.log(`[store] data.json 已从 v${state.from} 迁移到 v${state.to}`);
+      db = loaded;
+      scheduleSave();
+      break;
+    }
+    default:
+      db = loaded;
   }
   return db;
+}
+
+/** 把读不懂的原始内容另存一份，原文件保持不动。 */
+function backupUnreadable(raw: string): string | null {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = `${dataFile}.corrupt-${stamp}.bak`;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, raw, 'utf8');
+    lastBackup = file;
+    return file;
+  } catch (err) {
+    console.error('[store] 备份失败：', err);
+    return null;
+  }
 }
 
 /**
@@ -118,7 +128,20 @@ export function getDataFile() {
   return dataFile;
 }
 
+export function getLoadState(): LoadState {
+  return loadState;
+}
+
+export function isReadOnly() {
+  return readOnly;
+}
+
+export function getLastBackup() {
+  return lastBackup;
+}
+
 function scheduleSave() {
+  if (readOnly) return;
   dirty = true;
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
@@ -132,7 +155,7 @@ export function flushSync() {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  if (!dirty || !dataFile) return;
+  if (!dirty || !dataFile || readOnly) return;
   const tmp = dataFile + '.tmp';
   try {
     fs.mkdirSync(path.dirname(dataFile), { recursive: true });

@@ -1,6 +1,7 @@
-import { app, ipcMain, shell } from 'electron';
+import { app, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import * as store from './store';
+import { DB_VERSION } from './db-format';
 import * as W from './windows';
 import { rebindHotkey, unregisterAll, getActiveHotkey } from './hotkey';
 import { createTray, destroyTray, refreshTray, type TrayHandlers } from './tray';
@@ -92,10 +93,60 @@ function registerIpc() {
   ipcMain.handle('ui:quit', () => app.quit());
 }
 
+/**
+ * 数据文件出问题时的开场白。原则：宁可停下来问用户，也不要替他决定丢数据。
+ * 返回 false 表示用户选择退出，程序不该继续往下走。
+ */
+function handleLoadState(): boolean {
+  const state = store.getLoadState();
+
+  if (state.kind === 'corrupt') {
+    const backup = store.getLastBackup();
+    const choice = dialog.showMessageBoxSync({
+      type: 'error',
+      title: '数据文件读不出来',
+      message: 'data.json 解析失败，程序没有覆盖它，原文件已另存一份备份。',
+      detail: [
+        `原因：${state.reason}`,
+        backup ? `备份位置：${backup}` : '备份失败，请手动去数据目录把 data.json 改名留档。',
+        '',
+        '选「以空库启动」会用一份空数据继续，原始内容保留在上面的备份里。',
+      ].join('\n'),
+      buttons: ['以空库启动', '退出程序'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    return choice === 0;
+  }
+
+  if (state.kind === 'future') {
+    const choice = dialog.showMessageBoxSync({
+      type: 'warning',
+      title: '数据文件来自更新版本',
+      message: `这份 data.json 是 v${state.version} 写的，当前程序只支持 v${DB_VERSION}。`,
+      detail: '为避免破坏数据，程序不会写入这个文件。升级到最新版再打开即可。',
+      buttons: ['只读启动', '退出程序'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    return choice === 0;
+  }
+
+  return true;
+}
+
 async function bootstrap() {
   trace('bootstrap start');
   store.initStore();
   trace('store ready');
+
+  if (!handleLoadState()) {
+    app.quit();
+    return;
+  }
+
   registerIpc();
 
   const pad = W.createNotepad();
