@@ -11,13 +11,12 @@ Most note apps want you to **collect**. This one wants you to **finish**.
 A single always-on-top window that shows one note at a time. Grab a corner, fold it inward — the paper folds under your cursor, and past a certain crease it tears off and the next note comes up. You can't scroll, browse, or hoard: you can only deal with the one in front of you.
 
 - **Nothing piles up.** A dismissed note goes to an archive, not back onto the stack. Clear them all and the window says *no notes yet* — that's the goal, not a failure.
-- **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and past 42% of the card diagonal it tears off; before that it springs back flat. The upper corners don't fold (that would press the paper down rather than lift it) — pulling there gives you the CSS 3D flip instead.
+- **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and past 42% of the card diagonal it tears off; before that it springs back flat. The upper corners are inert: pulling there does nothing at all, so the note can't be folded the wrong way or torn off by accident.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
 
 Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it.
 
 <sub>Fold rendering uses Chromium's experimental `CanvasDrawElement`; where unavailable it silently falls back to a CSS 3D flip, so the app still works.</sub>
-
 ---
 
 ## 这是什么

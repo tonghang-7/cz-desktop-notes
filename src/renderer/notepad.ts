@@ -187,6 +187,8 @@ function attachGesture(
   const ctx = fold ? fold.canvas.getContext('2d') : null;
   // 本次手势是否走折叠。抓上角（从上往下压）时为 false，改走掀纸。
   let foldThis = false;
+  // 本次手势是否完全冻结。抓上角时为 true：卡片一动不动，也不能被摘掉。
+  let frozen = false;
   // 两套坐标，不能混：画布 0..W/0..H 含留白，卡片在画布里占 (CX,CY,CW,CH)。
   // 所有裁剪、填充、包围盒都必须用卡片那套，用画布那套会让纸背大出一圈。
   const W = fold ? fold.canvas.width : 0;
@@ -484,8 +486,9 @@ function attachGesture(
 
       // 只允许从下往上折：抓取点必须落在卡片下半部分。
       // 抓上角往里拖是把纸「压」下去（从上往下折），不是「掀」起来 —— 不做。
-      // 这次手势改走掀纸动画，视觉上仍有反馈，不会像卡住。
+      // 这次手势整个冻结：卡片不动，也不能被拖出去摘掉。
       foldThis = gy >= CY + CH / 2;
+      frozen = !foldThis;
 
       if (foldThis) {
         // 折痕方向固定为「抓取点 → 卡片中心」，按下时算一次就不再变。
@@ -513,6 +516,10 @@ function attachGesture(
     if (!active) return;
     dx = e.clientX - sx;
     dy = e.clientY - sy;
+
+    // 抓的是上半部分：这张卡这次一个字都不许动 ——
+    // 不折、不掀、不位移，更不许被拖出去摘掉。
+    if (frozen) return;
 
     if (foldThis) {
       const r = rectOf();
@@ -576,6 +583,14 @@ function attachGesture(
       }
       if (pendingRender) render();
       else void window.api.openManager();
+      return;
+    }
+
+    // 冻结的手势：卡片本来就没动过，也绝不能被摘掉。直接收工。
+    if (frozen) {
+      interacting = false;
+      card.style.transform = '';
+      if (pendingRender) render();
       return;
     }
 
