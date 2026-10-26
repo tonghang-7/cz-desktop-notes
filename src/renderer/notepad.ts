@@ -37,6 +37,10 @@ const FOLD_OK =
   typeof (CanvasRenderingContext2D.prototype as unknown as Record<string, unknown>)['drawElementImage'] ===
     'function';
 
+// 抓图连续失败（实验 API 换了脾气、或某个 Chromium 版本上行为变了）时，
+// 本次运行整体降级到掀纸动画。宁可观感弱，也不要让卡片在手势里变成空白。
+let foldBroken = false;
+
 let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
 
 // 三个状态位的关系：
@@ -158,7 +162,8 @@ function attachGesture(
   shot: HTMLElement | null,
   note: Note
 ) {
-  const fold = FOLD_OK && canvas && shot ? { canvas, shot } : null;
+  // 用 let：抓图连续失败时要能把它置空，当场切回掀纸路径。
+  let fold = FOLD_OK && !foldBroken && canvas && shot ? { canvas, shot } : null;
   const ctx = fold ? fold.canvas.getContext('2d') : null;
   // 两套坐标，不能混：画布 0..W/0..H 含留白，卡片在画布里占 (CX,CY,CW,CH)。
   // 所有裁剪、填充、包围盒都必须用卡片那套，用画布那套会让纸背大出一圈。
@@ -360,6 +365,13 @@ function attachGesture(
       }
     }
     capturing = false;
+    // 重试到底还是抓不到图：判定这条路径不可用，本次运行改走掀纸动画。
+    // 折叠分支会把真卡片 opacity 置 0，切回去之前必须放回来，否则卡片是隐形的。
+    foldBroken = true;
+    fold = null;
+    card.style.opacity = '';
+    canvas?.remove();
+    console.warn('[fold] 抓图连续失败，本次运行降级为掀纸动画');
   };
 
   const animateFold = (target: number, ms: number, done?: () => void) => {
@@ -439,7 +451,7 @@ function attachGesture(
       // max(0) 兜住，等于完全不折 —— 折角只会朝卡片内部长大。
       const proj = (cx - gx) * nx + (cy - gy) * ny;
       curDist = Math.max(0, proj) * FOLD_DAMP;
-      if (curDist > 2) card.style.opacity = '0';
+      if (curDist > 2 && bitmap) card.style.opacity = '0';
       if (bitmap) paint(gx, gy, nx, ny, curDist);
       return;
     }
