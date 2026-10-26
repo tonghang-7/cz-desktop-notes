@@ -18,7 +18,7 @@ Windows 10+ · portable zip, no installer · no account, no network, no telemetr
 
 <sub>Fold rendering uses Chromium's experimental `CanvasDrawElement`; where unavailable it silently falls back to a CSS 3D flip, so the app still works.</sub>
 
-**Slow download?** The official link crawls in some regions. Prefix the release URL with `https://ghfast.top/` for a ~40× mirror, then verify the sha256 listed on the release page.
+**Slow download?** The official link crawls in some regions. A community-run proxy mirror is ~40× faster: prefix the release URL with `https://ghfast.top/`. It is **not a GitHub service** — the server sees your request, and it could serve you a modified file, so verify the sha256 listed on the release page afterwards. It may also change domains or go down; the official link above always works.
 ---
 
 ## 这是什么
@@ -35,7 +35,7 @@ Windows 10+ · portable zip, no installer · no account, no network, no telemetr
 
 > `CZNotes.exe` 不能单独拷出来跑 —— 它依赖同一目录下的 `icudtl.dat`、`resources\app` 等文件。
 
-**下载慢？** 官方直连实测不到 50KB/s，146MB 要等 50 分钟以上。走镜像快约 40 倍：
+**下载慢？** 官方直连实测不到 50KB/s，146MB 要等 50 分钟以上。可以走社区的加速镜像：
 
 [点此下载（镜像）](https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/download/v0.4.0/CZNotes-win64.zip)
 
@@ -45,15 +45,23 @@ Windows 10+ · portable zip, no installer · no account, no network, no telemetr
 https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/download/v0.4.0/CZNotes-win64.zip
 ```
 
-镜像是第三方服务，**下完请核对 sha256** —— 每个版本页都写着这个值：
+关于这个镜像，有三件事得先说清楚：
 
-```sh
-certutil -hashfile CZNotes-win64.zip SHA256    # Windows
-shasum -a 256 CZNotes-win64.zip                # macOS / Linux
-```
+- **它不是 GitHub 提供的服务**，是社区运营的反向代理：服务端代替你去 GitHub 取文件再转发给你。
+  这意味着服务端看得到你的请求（你的 IP，和你在下载哪个仓库的哪个文件）。
+- **镜像里的文件理论上可以被替换**，所以下载后必须核对 sha256：
+
+  ```sh
+  certutil -hashfile CZNotes-win64.zip SHA256    # Windows
+  shasum -a 256 CZNotes-win64.zip                # macOS / Linux
+  ```
+
+  校验值写在每个版本的 Release 页上（那是官方渠道）。对上了，才说明文件没被改过。
+
+- **它随时可能换域名或者停掉**，这类服务都是这样。镜像挂了就用上面的官方地址。
+  你自己挂着代理的话，直接走代理下官方地址更省事。
 
 地址的规律是 `https://ghfast.top/` 后面接官方下载链接，换版本时替换版本号即可。
-镜像要是挂了，就用上面的官方地址 —— 官方那份永远是对的。
 
 ### 从源码构建
 
