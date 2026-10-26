@@ -20,7 +20,6 @@ const btnHide = document.getElementById('btn-hide') as HTMLButtonElement;
 
 // ── 掀纸路径（降级用）──
 const FLIP_RATIO = 0.34; // 摘除阈值 = 卡片高 × 0.34
-const SIDE_FLIP = 160; // 横向拖过这么多也算摘掉
 const TAP_SLOP = 5; // 位移小于它当作「点一下」而不是拖
 const DRAG_DEAD = 12; // 拖动死区，前 12px 不响应，用来滤掉手抖
 const RX_CURVE = 38; // 渐近曲线的形状参数，越大越早进入「拖不动」的区段
@@ -598,7 +597,9 @@ function attachGesture(
       return;
     }
 
-    const shouldFlip = !cancelled && (foldThis ? curDist > threshold : -dy > threshold || Math.abs(dx) > SIDE_FLIP);
+    // 摘除只有两条路：折角撕掉（foldThis 看折角距离）、向上拖翻页（看 -dy）。
+    // 早先还有一条「横向拖过 160px 也算摘掉」，已移除 —— 见 docs/06 的 CR-002。
+    const shouldFlip = !cancelled && (foldThis ? curDist > threshold : -dy > threshold);
 
     if (shouldFlip) {
       flipping = true;
