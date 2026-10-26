@@ -11,7 +11,7 @@ Most note apps want you to **collect**. This one wants you to **finish**.
 A single always-on-top window that shows one note at a time. Grab a corner, fold it inward — the paper folds under your cursor, and past a certain crease it tears off and the next note comes up. You can't scroll, browse, or hoard: you can only deal with the one in front of you.
 
 - **Nothing piles up.** A dismissed note goes to an archive, not back onto the stack. Clear them all and the window says *no notes yet* — that's the goal, not a failure.
-- **Fold to dismiss.** Grab anywhere and drag inward. The crease runs perpendicular to `grab point → card centre` and follows your pull. Past 42% of the card diagonal it tears off — before that it springs back.
+- **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and past 42% of the card diagonal it tears off; before that it springs back flat. The upper corners don't fold (that would press the paper down rather than lift it) — pulling there gives you the CSS 3D flip instead.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
 
 Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it.
@@ -24,7 +24,7 @@ Windows 10+ · portable zip, no installer · no account, no network, no telemetr
 
 一款桌面便签，用来顺手记下没弄懂的问题、或者留个备忘 —— 那种不立刻写下来就会忘的小事。
 
-大多数笔记软件希望你**积累**，这个希望你**清空**。窗口里永远只显示一张便签：捏住一角朝里折，折深了就撕掉，下一张顶上来。不能滚动、不能翻列表、不能囤 —— 你只能处理眼前这一张。
+大多数笔记软件希望你**积累**，这个希望你**清空**。窗口里永远只显示一张便签：捏住**下角**朝里折（往上掀），折深了就撕掉，下一张顶上来。不能滚动、不能翻列表、不能囤 —— 你只能处理眼前这一张。
 
 ## 获取
 

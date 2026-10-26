@@ -31,6 +31,9 @@ const FOLD_PAD = 36; // canvas 四周留白，折出去的部分和阴影要地�
 const FOLD_RATIO = 0.42; // 摘除阈值 = 卡片对角线 × 0.42
 const FOLD_DAMP = 0.85; // 手指走 100px，折痕只推进 85px
 const FLAT = 1.5; // 折角小于这个距离就算摊平：画布不再画折角，改由真卡片接管
+const REBOUND_MIN = 90; // 回弹最快也要这么长（ms），折得浅时一收手就平才不至于闪
+const REBOUND_MAX = 280; // 再深也不超过这个时长
+const REBOUND_PER_PX = 1.1; // 每折深 1px，回弹多花 1.1ms
 
 // 实验 API 只在启动时探一次，结果决定这次运行走哪条路径。
 const FOLD_OK =
@@ -182,6 +185,8 @@ function attachGesture(
   // 用 let：抓图连续失败时要能把它置空，当场切回掀纸路径。
   let fold = FOLD_OK && !foldBroken && canvas && shot ? { canvas, shot } : null;
   const ctx = fold ? fold.canvas.getContext('2d') : null;
+  // 本次手势是否走折叠。抓上角（从上往下压）时为 false，改走掀纸。
+  let foldThis = false;
   // 两套坐标，不能混：画布 0..W/0..H 含留白，卡片在画布里占 (CX,CY,CW,CH)。
   // 所有裁剪、填充、包围盒都必须用卡片那套，用画布那套会让纸背大出一圈。
   const W = fold ? fold.canvas.width : 0;
@@ -409,6 +414,7 @@ function attachGesture(
     // 折叠分支会把真卡片 opacity 置 0，切回去之前必须放回来，否则卡片是隐形的。
     foldBroken = true;
     fold = null;
+    foldThis = false;
     card.style.opacity = '';
     canvas?.remove();
     console.warn('[fold] 手势中抓图连续失败，本次运行降级为掀纸动画');
@@ -475,16 +481,26 @@ function attachGesture(
       const r = rectOf();
       gx = e.clientX - r.left;
       gy = e.clientY - r.top;
-      // 折痕方向固定为「抓取点 → 卡片中心」，按下时算一次就不再变。
-      // 如果让折痕垂直于拖动方向，横着拖时折痕会竖起来横扫整张卡片，一拖就折掉半边。
-      const dx0 = CX + CW / 2 - gx;
-      const dy0 = CY + CH / 2 - gy;
-      const dl = Math.hypot(dx0, dy0) || 1;
-      nx = dx0 / dl;
-      ny = dy0 / dl;
-      curDist = 0;
-      ctx?.clearRect(0, 0, W, H);
-      if (!bitmap) void capture(true);
+
+      // 只允许从下往上折：抓取点必须落在卡片下半部分。
+      // 抓上角往里拖是把纸「压」下去（从上往下折），不是「掀」起来 —— 不做。
+      // 这次手势改走掀纸动画，视觉上仍有反馈，不会像卡住。
+      foldThis = gy >= CY + CH / 2;
+
+      if (foldThis) {
+        // 折痕方向固定为「抓取点 → 卡片中心」，按下时算一次就不再变。
+        // 如果让折痕垂直于拖动方向，横着拖时折痕会竖起来横扫整张卡片，一拖就折掉半边。
+        const dx0 = CX + CW / 2 - gx;
+        const dy0 = CY + CH / 2 - gy;
+        const dl = Math.hypot(dx0, dy0) || 1;
+        nx = dx0 / dl;
+        ny = dy0 / dl;
+        curDist = 0;
+        ctx?.clearRect(0, 0, W, H);
+        if (!bitmap) void capture(true);
+      } else {
+        card.style.transition = '';
+      }
     } else {
       card.style.transition = '';
     }
@@ -498,7 +514,7 @@ function attachGesture(
     dx = e.clientX - sx;
     dy = e.clientY - sy;
 
-    if (fold) {
+    if (foldThis) {
       const r = rectOf();
       cx = e.clientX - r.left;
       cy = e.clientY - r.top;
@@ -550,7 +566,7 @@ function attachGesture(
 
     if (!cancelled && tapped) {
       interacting = false;
-      if (fold) {
+      if (foldThis) {
         cx = gx;
         cy = gy;
         ctx?.clearRect(0, 0, W, H);
@@ -563,11 +579,11 @@ function attachGesture(
       return;
     }
 
-    const shouldFlip = !cancelled && (fold ? curDist > threshold : -dy > threshold || Math.abs(dx) > SIDE_FLIP);
+    const shouldFlip = !cancelled && (foldThis ? curDist > threshold : -dy > threshold || Math.abs(dx) > SIDE_FLIP);
 
     if (shouldFlip) {
       flipping = true;
-      if (fold) {
+      if (foldThis) {
         animateFold(760, 220, () => {
           flipping = false;
           interacting = false;
@@ -588,10 +604,18 @@ function attachGesture(
       return;
     }
 
-    if (fold) {
+    if (foldThis) {
+      // 回弹的终点是「摊平」而不是 0：
+      // 实测折角距离降到 30 以内，画面就和完全摊平的卡片逐像素一致了，
+      // 再往 0 走画面也不变 —— 那段行程纯粹是静止的时间。
+      //
+      // 时长也跟着行程走：折得深就弹得久，折得浅就一收手就平。
+      // 固定时长的话，深折时后半程画面不动（像卡住），浅折时又被拉长（也像卡住）。
+      const span = Math.max(0, curDist - FLAT);
+      const ms = Math.max(REBOUND_MIN, Math.min(REBOUND_MAX, span * REBOUND_PER_PX));
       animateFold(
-        0,
-        180,
+        Math.min(FLAT, curDist),
+        ms,
         () => {
           interacting = false;
           // 先把真卡片放回来。画布上残留的那张位图和真卡片完全重合，看不出重影；
