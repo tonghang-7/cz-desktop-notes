@@ -538,6 +538,19 @@ async function boot() {
   render();
   wire();
 
+  // 从便签窗点卡片 / 新建便签进来：把光标直接放进编辑器，
+  // 省掉「点开管理窗 → 还得再点一下编辑区」这一步。
+  window.api.onFocusEditor(() => {
+    requestAnimationFrame(() => {
+      const ta = editor.querySelector<HTMLTextAreaElement>('.ed__text');
+      if (!ta) return;
+      ta.focus();
+      // 光标落到末尾：点进来多半是想接着往下写
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+    });
+  });
+
   const key = await window.api.getHotkey();
   cfgHotkey.textContent = key ? prettyHotkey(key) : '未绑定';
   hint.textContent = key

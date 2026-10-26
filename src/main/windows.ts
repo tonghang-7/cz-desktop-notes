@@ -195,10 +195,18 @@ export function createManager(): BrowserWindow {
   return manager;
 }
 
-export function showManager() {
+export function showManager(focusEditor = false) {
   const win = createManager();
   if (!win.isVisible()) win.show();
   win.focus();
+  if (!focusEditor) return;
+  // 从便签窗点卡片/新建进来的：意图是「改这一张」，把光标直接放进编辑器。
+  // 工具栏「管理」按钮进来不传这个标志 —— 那时用户可能只想翻列表。
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', () => win.webContents.send('manager:focus-editor'));
+  } else {
+    win.webContents.send('manager:focus-editor');
+  }
 }
 
 export function broadcastDb() {

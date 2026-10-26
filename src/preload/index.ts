@@ -14,7 +14,14 @@ const api = {
   reorderNotes: (ids: string[]): Promise<void> => ipcRenderer.invoke('notes:reorder', ids),
   updateSettings: (patch: Partial<Settings>): Promise<Settings> =>
     ipcRenderer.invoke('settings:update', patch),
-  openManager: (): Promise<void> => ipcRenderer.invoke('ui:open-manager'),
+  /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */
+  openManager: (fromCard?: boolean): Promise<void> =>
+    ipcRenderer.invoke('ui:open-manager', fromCard),
+  onFocusEditor: (cb: () => void) => {
+    const listener = () => cb();
+    ipcRenderer.on('manager:focus-editor', listener);
+    return () => ipcRenderer.off('manager:focus-editor', listener);
+  },
   hideNotepad: (): Promise<void> => ipcRenderer.invoke('ui:hide-notepad'),
   showNotepad: (): Promise<void> => ipcRenderer.invoke('ui:show-notepad'),
   getHotkey: (): Promise<string> => ipcRenderer.invoke('ui:hotkey'),

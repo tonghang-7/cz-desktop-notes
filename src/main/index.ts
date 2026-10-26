@@ -86,7 +86,7 @@ function registerIpc() {
     return store.getDb().settings;
   });
 
-  ipcMain.handle('ui:open-manager', () => W.showManager());
+  ipcMain.handle('ui:open-manager', (_e, fromCard?: boolean) => W.showManager(!!fromCard));
   ipcMain.handle('ui:hide-notepad', () => W.hideNotepad());
   ipcMain.handle('ui:show-notepad', () => W.showNotepad());
   ipcMain.handle('ui:hotkey', () => getActiveHotkey());

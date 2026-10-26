@@ -585,7 +585,8 @@ function attachGesture(
         card.style.transform = '';
       }
       if (pendingRender) render();
-      else void window.api.openManager();
+      // 传 true：轻点卡片的目的就是改这张，进去直接把光标放编辑器里
+      else void window.api.openManager(true);
       return;
     }
 
@@ -672,7 +673,8 @@ function attachGesture(
 
 async function addNote() {
   await window.api.createNote('');
-  await window.api.openManager();
+  // 新建完就是准备写字，同样直接把光标放进去
+  await window.api.openManager(true);
 }
 
 function wire() {
