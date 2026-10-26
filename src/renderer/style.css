@@ -722,7 +722,7 @@ body.mg {
 }
 
 .mg__row > span {
-  flex: 0 0 34px;
+  flex: 0 0 56px;
 }
 
 .mg__row input[type="range"] {
@@ -742,4 +742,31 @@ body.mg {
   font-size: 11.5px;
   line-height: 1.5;
   color: rgba(60, 53, 39, 0.4);
+}
+
+.mg__row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #b45309;
+  cursor: pointer;
+}
+
+.mg__path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: rgba(60, 53, 39, 0.6);
+}
+
+.mg__hotkeyval {
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.mg__ghost.is-recording {
+  border-color: #b45309;
+  color: #b45309;
 }

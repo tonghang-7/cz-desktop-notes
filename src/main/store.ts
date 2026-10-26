@@ -31,14 +31,57 @@ function newId() {
   return randomUUID();
 }
 
+/**
+ * 「数据放哪个目录」记在 userData 下的 data-location.json，而不是记在 data.json 里 ——
+ * 后者记不了自己住哪：得先知道它在哪，才读得到它。
+ */
+const LOCATION_FILE = 'data-location.json';
+
+function locationPath(): string {
+  return path.join(app.getPath('userData'), LOCATION_FILE);
+}
+
+function readLocation(): { dataDir: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(locationPath(), 'utf8'));
+    const dir = (parsed as { dataDir?: unknown } | null)?.dataDir;
+    return typeof dir === 'string' && dir ? { dataDir: dir } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocation(dataDir: string | null) {
+  try {
+    fs.mkdirSync(path.dirname(locationPath()), { recursive: true });
+    fs.writeFileSync(locationPath(), JSON.stringify({ dataDir }, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[store] 写数据位置失败：', err);
+  }
+}
+
+/** 跨盘符时 renameSync 会抛 EXDEV，退回复制 + 删原文件。 */
+function moveFile(from: string, to: string) {
+  try {
+    fs.renameSync(from, to);
+  } catch {
+    fs.copyFileSync(from, to);
+    fs.unlinkSync(from);
+  }
+}
+
 export function initStore(): NoteDb {
   // NOTES_DATA_DIR 可以把数据放到指定目录：便携版、放网盘同步、多套数据切换都用得上。
   // 指定了就不再走 userData，也不做旧目录迁移（那不是默认位置）。
+  // 优先级：环境变量 > 用户选的目录（data-location.json）> 默认 userData。
   const override = process.env.NOTES_DATA_DIR;
+  const loc = override ? null : readLocation();
   dataFile = override
     ? path.join(override, 'data.json')
-    : path.join(app.getPath('userData'), 'data.json');
-  if (!override) migrateLegacyData(dataFile);
+    : loc
+      ? path.join(loc.dataDir, 'data.json')
+      : path.join(app.getPath('userData'), 'data.json');
+  if (!override && !loc) migrateLegacyData(dataFile);
 
   let raw: string;
   try {
@@ -126,6 +169,64 @@ export function getDb(): NoteDb {
 
 export function getDataFile() {
   return dataFile;
+}
+
+export function getDataDir() {
+  return path.dirname(dataFile);
+}
+
+/**
+ * 换数据目录：把 data.json 搬过去，不是复制 ——
+ * 复制会留下两份，两边各改各的，早晚要合并冲突。
+ *
+ * 失败要能回到原样：目标位置有别的 data.json 就拒绝（不替用户决定丢哪边），
+ * 搬的过程中出错就把文件搬回原处，绝不停在「一半在这、一半在那」的状态。
+ */
+export function setDataDir(dir: string | null): { ok: boolean; dir: string; reason?: string } {
+  const target = dir
+    ? path.join(dir, 'data.json')
+    : path.join(app.getPath('userData'), 'data.json');
+  const from = dataFile;
+
+  if (path.resolve(target) === path.resolve(from)) {
+    return { ok: true, dir: path.dirname(target) };
+  }
+  if (fs.existsSync(target)) {
+    return {
+      ok: false,
+      dir: path.dirname(from),
+      reason: `${target} 已经有一份 data.json，没有覆盖它`,
+    };
+  }
+
+  flushSync();
+
+  const hadFile = fs.existsSync(from);
+  let moved = false;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (hadFile) {
+      moveFile(from, target);
+      moved = true;
+    }
+    writeLocation(dir);
+    initStore();
+    return { ok: true, dir: getDataDir() };
+  } catch (err) {
+    if (moved) {
+      try {
+        moveFile(target, from);
+      } catch {
+        // 搬回去也失败了：两份都在，只能记下来让用户自己收拾
+        console.error('[store] 换目录失败且回滚失败，两处都可能留有 data.json');
+      }
+    }
+    return {
+      ok: false,
+      dir: path.dirname(from),
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export function getLoadState(): LoadState {

@@ -14,7 +14,7 @@ A single always-on-top window that shows one note at a time. Grab a corner, fold
 - **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and past 42% of the card diagonal it tears off; before that it springs back flat. The upper corners are inert: pulling there does nothing at all, so the note can't be folded the wrong way or torn off by accident.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
 
-Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it.
+Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it. You can move that file elsewhere from the settings panel.
 
 <sub>Fold rendering uses Chromium's experimental `CanvasDrawElement`; where unavailable it silently falls back to a CSS 3D flip, so the app still works.</sub>
 
@@ -99,6 +99,9 @@ npm run dist
 - **摘掉**：列表项右侧的 ✓，或编辑器下方「完成并摘掉」
 - **已完成**：底部折叠区，可以「放回」或彻底「删除」
 - **卡片尺寸**：右上角「卡片尺寸」，宽 220–520、高 150–480
+- **开机自启**：同一个面板里的勾选框
+- **数据位置**：显示当前目录，「更改」会把 `data.json` 搬过去（不是复制，原位置不留副本），「默认位置」搬回 `%APPDATA%`
+- **呼出热键**：点「录制」再按想要的组合键。被别的程序占了会当场提示，并自动退回原来那个 —— 不会让你改完之后一个热键都没有
 
 ## 数据
 
@@ -106,7 +109,11 @@ npm run dist
 
 纯文本 JSON，可以直接备份、手改。写盘是原子写（先写 `.tmp` 再改名），程序崩了不会写出半个文件。
 
-想把数据放到别处（便携版、放网盘同步、几套数据轮换），设环境变量 `NOTES_DATA_DIR` 指向目录即可。
+想换地方放：管理界面 →「卡片尺寸」面板里的「数据位置」→「更改」。文件是**搬**过去的，原位置不留副本 —— 不留两份，就不用担心两边各改各的。目标目录里已经有一份 `data.json` 时会拒绝，不替你决定丢哪边；搬的过程中出错会把文件搬回原处。
+
+「数据放哪」记在 `%APPDATA%\cz-desktop-notes\data-location.json`，不在 `data.json` 里 —— 后者记不了自己住哪：得先知道它在哪，才读得到它。
+
+优先级：`NOTES_DATA_DIR` 环境变量 > 你选的目录 > 默认位置。环境变量是给便携版用的，设了它，设置里就改不动位置了。
 
 ## 托盘
 

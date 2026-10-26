@@ -96,6 +96,25 @@ test('迁移新增了没人接的字段：直接报错，不静默丢字段', ()
   assert.match(state.reason, /pinned/);
 });
 
+test('normalizeDb：老数据没有 autoLaunch，补成默认的 false', () => {
+  const db = normalizeDb(validDb());
+  assert.equal(db.settings.autoLaunch, false);
+});
+
+test('normalizeDb：autoLaunch 显式为真要留住', () => {
+  const raw = validDb();
+  raw.settings.autoLaunch = true;
+  const db = normalizeDb(raw);
+  assert.equal(db.settings.autoLaunch, true);
+});
+
+test('normalizeDb：autoLaunch 是乱七八糟的值就退回默认', () => {
+  const raw = validDb();
+  raw.settings.autoLaunch = 'yes';
+  const db = normalizeDb(raw);
+  assert.equal(db.settings.autoLaunch, false);
+});
+
 test('normalizeDb：非对象条目丢掉，缺 id 的条目补 id', () => {
   const db = normalizeDb({
     notes: [null, 'x', { text: '没有 id' }, { id: 'ok', text: '有 id' }],

@@ -3,7 +3,7 @@ import path from 'node:path';
 import * as store from './store';
 import { DB_VERSION } from './db-format';
 import * as W from './windows';
-import { rebindHotkey, unregisterAll, getActiveHotkey } from './hotkey';
+import { rebindHotkey, unregisterAll, getActiveHotkey, setHotkey } from './hotkey';
 import { createTray, destroyTray, refreshTray, type TrayHandlers } from './tray';
 import { trace } from './perf';
 import type { NoteColor, Settings } from '../shared/types';
@@ -90,6 +90,35 @@ function registerIpc() {
   ipcMain.handle('ui:hide-notepad', () => W.hideNotepad());
   ipcMain.handle('ui:show-notepad', () => W.showNotepad());
   ipcMain.handle('ui:hotkey', () => getActiveHotkey());
+
+  ipcMain.handle('hotkey:set', (_e, accel: string) => {
+    const result = setHotkey(accel, () => W.toggleNotepad());
+    refreshTray(trayHandlers);
+    return result;
+  });
+
+  ipcMain.handle('app:get-autolaunch', () => app.getLoginItemSettings().openAtLogin);
+
+  ipcMain.handle('app:set-autolaunch', (_e, on: boolean) => {
+    // 没打包时 execPath 是 electron.exe，写进登录项只会开机拉起一个空壳。
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!on });
+    store.updateSettings({ autoLaunch: !!on });
+    W.broadcastDb();
+    return app.getLoginItemSettings().openAtLogin;
+  });
+
+  ipcMain.handle('data:get-dir', () => store.getDataDir());
+
+  ipcMain.handle('data:set-dir', (_e, dir: string | null) => store.setDataDir(dir));
+
+  ipcMain.handle('data:choose-dir', async () => {
+    const res = await dialog.showOpenDialog({
+      title: '选择便签数据存放的目录',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || !res.filePaths[0]) return null;
+    return res.filePaths[0];
+  });
   ipcMain.handle('ui:quit', () => app.quit());
 }
 
@@ -141,6 +170,11 @@ async function bootstrap() {
   trace('bootstrap start');
   store.initStore();
   trace('store ready');
+
+  // 自启可能在别处被改过（系统设置、旧版本残留），启动时以配置为准同步一次。
+  if (store.getDb().settings.autoLaunch && app.isPackaged) {
+    app.setLoginItemSettings({ openAtLogin: true });
+  }
 
   if (!handleLoadState()) {
     app.quit();

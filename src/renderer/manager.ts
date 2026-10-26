@@ -30,6 +30,13 @@ const sizeH = document.getElementById('size-h') as HTMLInputElement;
 const sizeWOut = document.getElementById('size-w-out') as HTMLOutputElement;
 const sizeHOut = document.getElementById('size-h-out') as HTMLOutputElement;
 const hint = document.getElementById('hint') as HTMLElement;
+const cfgAutoLaunch = document.getElementById('cfg-autolaunch') as HTMLInputElement;
+const cfgDataDir = document.getElementById('cfg-datadir') as HTMLElement;
+const btnDataDir = document.getElementById('btn-datadir') as HTMLButtonElement;
+const btnDataDirDefault = document.getElementById('btn-datadir-default') as HTMLButtonElement;
+const btnHotkey = document.getElementById('btn-hotkey') as HTMLButtonElement;
+const cfgHotkey = document.getElementById('cfg-hotkey') as HTMLOutputElement;
+const cfgTip = document.getElementById('cfg-tip') as HTMLElement;
 
 let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
 let selectedId: string | null = null;
@@ -38,6 +45,8 @@ let selectedId: string | null = null;
 let renderedEditorId: string | null = null;
 let draggingId: string | null = null;
 let saveTimer: number | null = null;
+// 录制热键期间，按键的含义是「设成什么」，不是「执行什么」
+let recordingHotkey = false;
 let sizeTimer: number | null = null;
 let savedTimer: number | null = null;
 
@@ -384,6 +393,54 @@ async function createNew() {
   });
 }
 
+/** 热键显示成 Ctrl + Alt + Space 这样，原样是 Control+Alt+Space。 */
+function prettyHotkey(accel: string) {
+  return accel.replace(/Control/g, 'Ctrl').replace(/\+/g, ' + ');
+}
+
+/**
+ * 把一次按键翻译成 Electron 的 accelerator 字符串。
+ * 不带修饰键的单击不给过 —— 那会吞掉用户在别处的所有输入（单按 A 就呼出便签）。
+ */
+function accelFromEvent(e: KeyboardEvent): string | null {
+  if (!e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) return null;
+  const parts: string[] = [];
+  if (e.ctrlKey) parts.push('Control');
+  if (e.metaKey) parts.push('Super');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+  const key = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  parts.push(key);
+  return parts.join('+');
+}
+
+async function applyHotkey(accel: string) {
+  recordingHotkey = false;
+  btnHotkey.textContent = '录制';
+  btnHotkey.classList.remove('is-recording');
+
+  const r = await window.api.setHotkey(accel);
+  cfgHotkey.textContent = r.active ? prettyHotkey(r.active) : '未绑定';
+  hint.textContent = r.active
+    ? `按 ${prettyHotkey(r.active)} 随时呼出便签`
+    : '热键未绑定成功，可从托盘图标呼出';
+  cfgTip.textContent = r.ok ? '已生效' : (r.reason ?? '没设成');
+}
+
+async function changeDataDir(dir: string | null) {
+  const r = await window.api.setDataDir(dir);
+  cfgDataDir.textContent = r.dir;
+  cfgTip.textContent = r.ok
+    ? dir
+      ? '已搬到新位置，原位置没留副本'
+      : '已回到默认位置'
+    : (r.reason ?? '没换成');
+  if (r.ok) {
+    db = await window.api.getDb();
+    render();
+  }
+}
+
 function onSizeInput() {
   const w = Number(sizeW.value);
   const h = Number(sizeH.value);
@@ -414,7 +471,54 @@ function wire() {
     sizePanel.hidden = true;
   });
 
+  cfgAutoLaunch.addEventListener('change', () => {
+    void (async () => {
+      const on = await window.api.setAutoLaunch(cfgAutoLaunch.checked);
+      cfgAutoLaunch.checked = on;
+      cfgTip.textContent = on ? '开机会自动启动' : '已关掉开机自启';
+    })();
+  });
+
+  btnDataDir.addEventListener('click', () => {
+    void (async () => {
+      const dir = await window.api.chooseDataDir();
+      if (dir) await changeDataDir(dir);
+    })();
+  });
+
+  btnDataDirDefault.addEventListener('click', () => {
+    void changeDataDir(null);
+  });
+
+  btnHotkey.addEventListener('click', () => {
+    recordingHotkey = true;
+    btnHotkey.textContent = '按组合键…';
+    btnHotkey.classList.add('is-recording');
+    cfgTip.textContent = '按想要的组合键，Esc 取消';
+  });
+
   document.addEventListener('keydown', (e) => {
+    if (recordingHotkey) {
+      e.preventDefault();
+      const stop = () => {
+        recordingHotkey = false;
+        btnHotkey.textContent = '录制';
+        btnHotkey.classList.remove('is-recording');
+      };
+      if (e.key === 'Escape') {
+        stop();
+        cfgTip.textContent = '已取消';
+        return;
+      }
+      const accel = accelFromEvent(e);
+      if (!accel) {
+        cfgTip.textContent = '至少要带一个修饰键（Ctrl / Alt / Shift）';
+        return;
+      }
+      void applyHotkey(accel);
+      return;
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
       e.preventDefault();
       void createNew();
@@ -435,9 +539,12 @@ async function boot() {
   wire();
 
   const key = await window.api.getHotkey();
+  cfgHotkey.textContent = key ? prettyHotkey(key) : '未绑定';
   hint.textContent = key
-    ? `按 ${key.replace(/Control/g, 'Ctrl').replace(/\+/g, ' + ')} 随时呼出便签`
+    ? `按 ${prettyHotkey(key)} 随时呼出便签`
     : '热键未绑定成功，可从托盘图标呼出';
+  cfgAutoLaunch.checked = await window.api.getAutoLaunch();
+  cfgDataDir.textContent = await window.api.getDataDir();
 
   window.api.onDbChanged((next) => {
     db = next;

@@ -14,6 +14,8 @@ export interface Settings {
   cardHeight: number;
   windowX: number | null;
   windowY: number | null;
+  /** 开机自启。数据目录不在这里 —— 它决定 data.json 在哪，写在自己里面就成了鸡生蛋。 */
+  autoLaunch: boolean;
 }
 
 export interface NoteDb {
@@ -37,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cardHeight: 250,
   windowX: null,
   windowY: null,
+  autoLaunch: false,
 };
 
 export const HOTKEY_CANDIDATES = [

@@ -80,6 +80,7 @@ function normalizeSettings(raw: unknown): Settings {
     cardHeight: size.cardHeight,
     windowX: typeof r.windowX === 'number' ? r.windowX : null,
     windowY: typeof r.windowY === 'number' ? r.windowY : null,
+    autoLaunch: typeof r.autoLaunch === 'boolean' ? r.autoLaunch : DEFAULT_SETTINGS.autoLaunch,
   };
 }
 

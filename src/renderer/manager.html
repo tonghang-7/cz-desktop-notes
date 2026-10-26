@@ -52,6 +52,26 @@
         <output id="size-h-out">250</output>
       </label>
       <p class="mg__sizetip">便签窗口会跟着变，拖顶部那条可以移动位置</p>
+
+      <label class="mg__row">
+        <span>开机自启</span>
+        <input type="checkbox" id="cfg-autolaunch" />
+      </label>
+
+      <div class="mg__row">
+        <span>数据位置</span>
+        <code class="mg__path" id="cfg-datadir">—</code>
+        <button class="mg__ghost" id="btn-datadir" type="button">更改</button>
+        <button class="mg__ghost" id="btn-datadir-default" type="button">默认位置</button>
+      </div>
+
+      <div class="mg__row">
+        <span>呼出热键</span>
+        <button class="mg__ghost" id="btn-hotkey" type="button">录制</button>
+        <output class="mg__hotkeyval" id="cfg-hotkey">—</output>
+      </div>
+
+      <p class="mg__sizetip" id="cfg-tip"></p>
     </div>
 
     <script src="./manager.js"></script>

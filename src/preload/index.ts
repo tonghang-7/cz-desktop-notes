@@ -18,6 +18,15 @@ const api = {
   hideNotepad: (): Promise<void> => ipcRenderer.invoke('ui:hide-notepad'),
   showNotepad: (): Promise<void> => ipcRenderer.invoke('ui:show-notepad'),
   getHotkey: (): Promise<string> => ipcRenderer.invoke('ui:hotkey'),
+  setHotkey: (accel: string): Promise<{ ok: boolean; active: string; reason?: string }> =>
+    ipcRenderer.invoke('hotkey:set', accel),
+  getAutoLaunch: (): Promise<boolean> => ipcRenderer.invoke('app:get-autolaunch'),
+  setAutoLaunch: (on: boolean): Promise<boolean> => ipcRenderer.invoke('app:set-autolaunch', on),
+  getDataDir: (): Promise<string> => ipcRenderer.invoke('data:get-dir'),
+  /** 传 null 表示回到默认位置 */
+  setDataDir: (dir: string | null): Promise<{ ok: boolean; dir: string; reason?: string }> =>
+    ipcRenderer.invoke('data:set-dir', dir),
+  chooseDataDir: (): Promise<string | null> => ipcRenderer.invoke('data:choose-dir'),
   quit: (): Promise<void> => ipcRenderer.invoke('ui:quit'),
   onDbChanged: (cb: (db: NoteDb) => void) => {
     const listener = (_e: unknown, db: NoteDb) => cb(db);
