@@ -264,9 +264,16 @@ function attachGesture(
    */
   const paint = (ax: number, ay: number, dirx: number, diry: number, dist: number) => {
     if (!ctx) return;
-    ctx.clearRect(0, 0, W, H);
     if (!bitmap) return;
-    if (dist < 1.5) return;
+    if (dist < 1.5) {
+      // 折角已经摊平。画布上残留的那张位图和真卡片是同一张卡、同一位置，完全重合，
+      // 所以这时把真卡片放回来，画面是连续的。
+      // 关键：这里不能先 clearRect —— 清了画布就空了，而卡片要等动画结束才恢复，
+      // 中间会空出一帧，看起来就是「闪一下再出现」。
+      card.style.opacity = '';
+      return;
+    }
+    ctx.clearRect(0, 0, W, H);
 
     const mx = ax + dirx * dist; // 折痕中点
     const my = ay + diry * dist;
@@ -407,11 +414,26 @@ function attachGesture(
     console.warn('[fold] 手势中抓图连续失败，本次运行降级为掀纸动画');
   };
 
-  const animateFold = (target: number, ms: number, done?: () => void) => {
+  /**
+   * 折角的形变动画。
+   *
+   * `ease` 分两种：
+   *  - 摘除（往 760 走）用缓出：起步快、收尾慢，像纸被甩出去；
+   *  - 回弹（往 0 走）用缓入缓出：匀速摊平，两头都柔和。
+   *    之前回弹也用缓出，前三分之一的时间就完成了 87% 的形变，
+   *    剩下三分之二画面几乎不动 —— 看起来就是「唰一下摊平」，不像慢慢折回去。
+   */
+  const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+  const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+  const animateFold = (
+    target: number,
+    ms: number,
+    done?: () => void,
+    ease: (t: number) => number = easeOut
+  ) => {
     const from = curDist;
     const t0 = performance.now();
-    // 缓出三次曲线：起步快、收尾慢
-    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
     const step = () => {
       const t = Math.min(1, (performance.now() - t0) / ms);
       curDist = from + (target - from) * ease(t);
@@ -480,6 +502,21 @@ function attachGesture(
       const r = rectOf();
       cx = e.clientX - r.left;
       cy = e.clientY - r.top;
+
+      // 指针跑到窗口外面去了：clientX/clientY 会突然变成负数或超出视口，
+      // 折角距离被算成 0 → paint() 先 clearRect 再因为 dist 太小早退 →
+      // 画布空了，而真卡片这时是隐藏的 → 屏幕上什么都不剩，看着像便签凭空消失。
+      // 这种时候直接结束手势，让卡片弹回原位。
+      if (
+        e.clientX < 0 ||
+        e.clientY < 0 ||
+        e.clientX > window.innerWidth ||
+        e.clientY > window.innerHeight
+      ) {
+        finish(true);
+        return;
+      }
+
       // 只取「朝卡片中心」那个方向的位移分量。反方向拖（往外拉）投影为负，
       // max(0) 兜住，等于完全不折 —— 折角只会朝卡片内部长大。
       const proj = (cx - gx) * nx + (cy - gy) * ny;
@@ -550,12 +587,21 @@ function attachGesture(
     }
 
     if (fold) {
-      animateFold(0, 200, () => {
-        interacting = false;
-        ctx?.clearRect(0, 0, W, H);
-        card.style.opacity = '';
-        if (pendingRender) render();
-      });
+      animateFold(
+        0,
+        240,
+        () => {
+          interacting = false;
+          // 先把真卡片放回来。画布上摊平的那张位图和真卡片完全重合，看不出重影；
+          // 反过来（先清画布、后显示卡片）中间会空一帧 —— 看起来就是「闪一下再出现」。
+          card.style.opacity = '';
+          requestAnimationFrame(() => {
+            ctx?.clearRect(0, 0, W, H);
+            if (pendingRender) render();
+          });
+        },
+        easeInOut
+      );
     } else {
       card.style.transition = 'transform 250ms cubic-bezier(.22,1.15,.36,1)';
       card.style.transform = 'perspective(2400px) rotateX(0deg) rotateZ(0deg) translateY(0)';
@@ -590,6 +636,13 @@ function wire() {
     if (e.key === 'Escape') void window.api.hideNotepad();
   });
   window.addEventListener('blur', () => activeFinish?.(true));
+
+  // 鼠标拖出窗口：窗口本身没失焦，所以 blur 不会触发，pointermove 也会停。
+  // 这时候正折着角的卡片会停在半途 —— 画布是空的（坐标越界被当成折角 0）、
+  // 真卡片又是隐藏的，屏幕上就什么都不剩。relatedTarget 为空表示鼠标真的离开了窗口。
+  window.addEventListener('mouseout', (e) => {
+    if (!e.relatedTarget) activeFinish?.(true);
+  });
 }
 
 async function boot() {
