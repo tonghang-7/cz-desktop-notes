@@ -156,6 +156,17 @@ function renderList() {
   });
 }
 
+/** 附件文件名 → data URL。切来切去不该每次都读盘。 */
+const editorImageCache = new Map<string, string>();
+
+async function ensureImage(fileName: string): Promise<string | null> {
+  const hit = editorImageCache.get(fileName);
+  if (hit) return hit;
+  const url = await window.api.readImage(fileName);
+  if (url) editorImageCache.set(fileName, url);
+  return url;
+}
+
 /**
  * 时间戳 → datetime-local 的 value（本地时间，YYYY-MM-DDTHH:mm）。
  * 不能拿 toISOString() 顶替 —— 那是 UTC，回填会差一个时区。
@@ -186,6 +197,24 @@ function fmtDue(dueAt: number | null): string {
 }
 
 function updateEditorMeta(note: Note) {
+  const imgWrap = editor.querySelector<HTMLElement>('.ed__imgwrap');
+  const imgEl = editor.querySelector<HTMLImageElement>('.ed__img');
+  if (imgWrap && imgEl) {
+    if (note.image) {
+      imgWrap.hidden = false;
+      if (imgEl.dataset.file !== note.image) {
+        imgEl.dataset.file = note.image;
+        void ensureImage(note.image).then((url) => {
+          if (url) imgEl.src = url;
+        });
+      }
+    } else {
+      imgWrap.hidden = true;
+      imgEl.removeAttribute('src');
+      delete imgEl.dataset.file;
+    }
+  }
+
   const dueVal = editor.querySelector<HTMLElement>('.ed__dueval');
   if (dueVal) dueVal.textContent = fmtDue(note.dueAt);
 
@@ -276,6 +305,27 @@ function renderEditor() {
     if (id) flushSave(id, ta.value);
   });
 
+  // 图片是便签的内容，编辑器里就得看得见 —— 只在卡片上画一张图，
+  // 用户会觉得那只是贴纸，而不是这张便签本身长这样。
+  const imgWrap = document.createElement('div');
+  imgWrap.className = 'ed__imgwrap';
+  imgWrap.hidden = true;
+
+  const imgEl = document.createElement('img');
+  imgEl.className = 'ed__img';
+  imgEl.alt = '';
+  imgEl.addEventListener('click', () => {
+    if (note.image) void window.api.openImage(note.image);
+  });
+
+  const imgDel = document.createElement('button');
+  imgDel.className = 'ed__imgdel';
+  imgDel.type = 'button';
+  imgDel.textContent = '移除图片';
+  imgDel.addEventListener('click', () => void window.api.setImage(note.id, null));
+
+  imgWrap.append(imgEl, imgDel);
+
   // 时限：一个原生的日期时间输入框。
   // 预设按钮本质是「相对现在」的换算，既表达不了「周五 14:00 开会」这种，
   // 也不如直接选来得自由 —— 所以不做了。
@@ -330,7 +380,7 @@ function renderEditor() {
   doneBtn.addEventListener('click', () => void completeNote(note.id));
 
   foot.append(saved, doneBtn);
-  wrap.append(meta, ta, dueRow, foot);
+  wrap.append(meta, imgWrap, ta, dueRow, foot);
   editor.appendChild(wrap);
 
   updateEditorMeta(note);
