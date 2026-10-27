@@ -8,10 +8,13 @@ A desktop sticky note for the small stuff you would otherwise lose — a questio
 
 Most note apps want you to **collect**. This one wants you to **finish**.
 
-A single always-on-top window that shows one note at a time. Grab a corner, fold it inward — the paper folds under your cursor, and past a certain crease it tears off and the next note comes up. You can't scroll, browse, or hoard: you can only deal with the one in front of you.
+A single always-on-top window that shows one note at a time. Grab a corner, fold it inward — the paper folds under your cursor, and past a certain crease it tears off and the next note comes up. There is no list to scroll and no stack to browse: you can only deal with the one in front of you. (The mouse wheel scrolls a long note's own text — nothing else.)
 
 - **Nothing piles up.** A dismissed note goes to an archive, not back onto the stack. Clear them all and the window says *no notes yet* — that's the goal, not a failure.
 - **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and past 42% of the card diagonal it tears off; before that it springs back flat. The upper corners are inert: pulling there does nothing at all, so the note can't be folded the wrong way or torn off by accident.
+- **A note can hold a picture.** `Ctrl + V` pastes whatever is on your clipboard onto the note in front — a screenshot, a chart, a receipt. Click the image to open it full size in your own viewer.
+- **A note can carry a deadline.** Set one in the editor and a thin line runs along the bottom of the card, shrinking as the time drains, burning from ink to orange. Past zero the paper yellows and gives one small shake.
+- **Capture without switching windows.** `Ctrl + Alt + V` turns whatever is on your clipboard — an image or plain text — into a fresh note on top of the stack, window included.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
 
 Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it. You can move that file elsewhere from the settings panel.
