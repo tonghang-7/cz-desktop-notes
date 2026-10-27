@@ -13,6 +13,7 @@
 cd <仓库根>
 npm run dist          # 构建 + 组装免安装版到 release/CZNotes/
 npm run pack          # 打成 release/CZNotes-win64.zip，并打印 sha256
+npm run pack-app      # 打成增量包 release/app-<version>.tar.gz（热更新用），打印 sha256
 node tools/verify-dist.mjs   # 独立再校验一次产物完整性
 
 # 1. 建草稿（先别带附件！）
@@ -21,7 +22,8 @@ gh release create v0.3.1 --draft --target main \
   --repo tonghang-7/cz-desktop-notes
 
 # 2. 传附件（约 1~5 分钟，取决于网速）
-gh release upload v0.3.1 "release/CZNotes-win64.zip" \
+#    两个都要传：完整包给首次安装，增量包给已经在用旧版的人热更新
+gh release upload v0.3.1 "release/CZNotes-win64.zip" "release/app-0.3.1.tar.gz" \
   --repo tonghang-7/cz-desktop-notes
 
 # 3. 核对（见下），通过后发布
@@ -65,6 +67,22 @@ env -u ELECTRON_RUN_AS_NODE timeout 10 ./CZNotes.exe
 主脚本根本不会执行，进程却照样活着 —— 看起来「启动成功」，其实什么都没跑。
 某些编辑器/终端会预设这个变量（`tools/run.mjs` 里有专门清它的代码）。
 只看到「进程还在」不算通过，要确认窗口起来了。
+
+## 增量包（热更新用）
+
+`npm run pack-app` 只打 `resources/app`（约 90KB，完整包是 146MB）。客户端拉到它、
+校验 sha256、解到 `update/app.new/`，**下次启动时**把整个 `resources/app` 换掉；
+换失败自动退回 `app.old`，换成功且新版本能正常启动则清掉 `app.old`。
+
+三条硬要求：
+
+1. **两个包必须出自同一次 `npm run dist`。** 分两次跑会得到代码不一致的两份产物，
+   热更新上去之后用户看到的是混合版本 —— 这种问题极难排查。
+2. **`update.json` 里的 `electronVersion` 决定这个包能不能装。** 客户端比对运行时版本，
+   对不上就拒绝（防止新代码跑在旧 Electron 上直接崩）。升级 Electron 版本时，
+   必须发完整包，不能指望热更新。
+3. **发版时两个附件都要传。** 缺增量包，老用户点「检查更新」会看到
+   「这个版本没提供增量包，只能下完整包」。
 
 ## 其它约定
 

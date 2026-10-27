@@ -43,8 +43,14 @@ jobs:
       - name: 打包 zip 并做解压复现测试
         run: node tools/pack-zip.mjs
 
+      # 热更新用的增量包。和完整包必须出自同一次 dist —— CI 里天然满足这一点
+      - name: 打增量包（热更新）
+        run: node tools/pack-app.mjs
+
       - uses: actions/upload-artifact@v4
         with:
           name: CZNotes-win64
-          path: release/CZNotes-win64.zip
+          path: |
+            release/CZNotes-win64.zip
+            release/app-*.tar.gz
           if-no-files-found: error

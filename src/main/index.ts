@@ -7,6 +7,7 @@ import { DB_VERSION } from './db-format';
 import * as W from './windows';
 import { rebindHotkey, unregisterAll, getActiveHotkey, setHotkey } from './hotkey';
 import { createTray, destroyTray, refreshTray, type TrayHandlers } from './tray';
+import * as updater from './updater';
 import { trace } from './perf';
 import type { NoteColor, Settings } from '../shared/types';
 
@@ -199,6 +200,33 @@ function registerIpc() {
     void shell.openExternal('https://github.com/tonghang-7/cz-desktop-notes/releases/latest');
   });
 
+  // ── 热更新 ──
+  ipcMain.handle('update:check', async () => {
+    try {
+      return { ok: true, info: await updater.checkUpdate(), current: app.getVersion() };
+    } catch (err) {
+      return { ok: false, current: app.getVersion(), error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('update:download', async (_e, info: updater.UpdateInfo) => {
+    try {
+      await updater.downloadUpdate(info);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('update:pending', () => updater.readPending());
+
+  ipcMain.handle('update:relaunch', () => {
+    // 同上：不放锁的话新实例会被自己挡住
+    app.releaseSingleInstanceLock();
+    app.relaunch();
+    app.exit(0);
+  });
+
   ipcMain.handle('settings:update', (_e, patch: Partial<Settings>) => {
     const before = store.getDb().settings;
     store.updateSettings(patch);
@@ -298,6 +326,25 @@ function handleLoadState(): boolean {
 
 async function bootstrap() {
   trace('bootstrap start');
+
+  // 装更新要抢在建窗口之前。替换的是 resources/app：当前进程的代码已经在内存里了，
+  // 动文件不会影响它，但渲染进程还没加载 —— 只有立刻重启，才能保证 main 和 renderer
+  // 都来自同一个版本，否则会出现「旧 main 带新 renderer」的混版。
+  const applied = updater.applyPendingUpdate();
+  if (applied === 'applied') {
+    trace('update applied, relaunching');
+    // 必须主动放锁。新实例用同一个 user-data-dir，也就是同一把单实例锁；
+    // 老进程还没退干净，新进程抢不到锁会直接退出 —— 表现为「更新装好了，程序却没再起来」。
+    app.releaseSingleInstanceLock();
+    app.relaunch();
+    app.exit(0);
+    return;
+  }
+  if (applied === 'cleaned') {
+    trace('update confirmed healthy, cleaned app.old');
+    updater.cleanupLeftovers();
+  }
+
   store.initStore();
   trace('store ready');
 

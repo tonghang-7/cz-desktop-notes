@@ -33,8 +33,30 @@ const api = {
     ipcRenderer.invoke('ui:notify', title, body),
   /** 当前版本号，比如 0.5.0 */
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
-  /** 用默认浏览器打开最新 Release 页（程序自己不联网） */
+  /** 用默认浏览器打开最新 Release 页（下完整包用） */
   openReleases: (): Promise<void> => ipcRenderer.invoke('app:openReleases'),
+  /** 查有没有新版（走 GitHub API，只在点的时候调用） */
+  checkUpdate: (): Promise<{
+    ok: boolean;
+    current: string;
+    info?: {
+      version: string;
+      size: number;
+      url: string;
+      sha256: string;
+      electronVersion: string;
+      notes: string;
+    } | null;
+    error?: string;
+  }> => ipcRenderer.invoke('update:check'),
+  /** 下载增量包到本地并校验（不替换） */
+  downloadUpdate: (info: unknown): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('update:download', info),
+  /** 已经下好、等重启生效的版本 */
+  pendingUpdate: (): Promise<{ version: string; at: number } | null> =>
+    ipcRenderer.invoke('update:pending'),
+  /** 重启应用（安装更新后由用户点） */
+  relaunchApp: (): Promise<void> => ipcRenderer.invoke('update:relaunch'),
   /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */
   openManager: (fromCard?: boolean): Promise<void> =>
     ipcRenderer.invoke('ui:open-manager', fromCard),

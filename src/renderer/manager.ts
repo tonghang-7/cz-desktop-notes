@@ -39,6 +39,18 @@ const cfgHotkey = document.getElementById('cfg-hotkey') as HTMLOutputElement;
 const cfgTip = document.getElementById('cfg-tip') as HTMLElement;
 const cfgVersion = document.getElementById('cfg-version') as HTMLElement;
 const btnCheckUpdate = document.getElementById('btn-check-update') as HTMLButtonElement;
+const btnInstallUpdate = document.getElementById('btn-install-update') as HTMLButtonElement;
+const btnRelaunch = document.getElementById('btn-relaunch') as HTMLButtonElement;
+
+type UpdateInfo = {
+  version: string;
+  size: number;
+  url: string;
+  sha256: string;
+  electronVersion: string;
+  notes: string;
+};
+let updateInfo: UpdateInfo | null = null;
 
 let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
 let selectedId: string | null = null;
@@ -634,10 +646,54 @@ function wire() {
     cfgVersion.textContent = `v${v}`;
   });
 
-  btnCheckUpdate.addEventListener('click', () => {
-    void window.api.openReleases();
-    cfgTip.textContent = '已在浏览器打开发布页 —— 最新版本、改了什么、下载都在那里';
+  // 已经下好、等重启才生效的更新（上次点完安装但没重启）
+  void window.api.pendingUpdate().then((p) => {
+    if (!p) return;
+    cfgTip.textContent = `v${p.version} 已下载，重启后生效`;
+    btnRelaunch.hidden = false;
   });
+
+  btnCheckUpdate.addEventListener('click', () => {
+    void (async () => {
+      btnCheckUpdate.disabled = true;
+      btnCheckUpdate.textContent = '检查中…';
+      const r = await window.api.checkUpdate();
+      btnCheckUpdate.disabled = false;
+      btnCheckUpdate.textContent = '检查更新';
+
+      if (!r.ok) {
+        cfgTip.textContent = `检查失败：${r.error}（没联网或 GitHub 不通时可以下完整包）`;
+        return;
+      }
+      if (!r.info) {
+        cfgTip.textContent = `已是最新（v${r.current}）`;
+        return;
+      }
+      updateInfo = r.info;
+      cfgTip.textContent = `发现 v${r.info.version}，增量包 ${Math.round(r.info.size / 1024)} KB`;
+      btnInstallUpdate.hidden = false;
+    })();
+  });
+
+  btnInstallUpdate.addEventListener('click', () => {
+    void (async () => {
+      if (!updateInfo) return;
+      btnInstallUpdate.disabled = true;
+      btnInstallUpdate.textContent = '下载中…';
+      const r = await window.api.downloadUpdate(updateInfo);
+      btnInstallUpdate.disabled = false;
+      btnInstallUpdate.textContent = '安装';
+      if (!r.ok) {
+        cfgTip.textContent = `装不上：${r.error} —— 可以把完整包下下来手动覆盖`;
+        return;
+      }
+      btnInstallUpdate.hidden = true;
+      cfgTip.textContent = `v${updateInfo.version} 已就位，重启后生效`;
+      btnRelaunch.hidden = false;
+    })();
+  });
+
+  btnRelaunch.addEventListener('click', () => void window.api.relaunchApp());
 
   document.addEventListener('keydown', (e) => {
     if (recordingHotkey) {

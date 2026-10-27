@@ -13,6 +13,7 @@
     "test": "node build.mjs && node --test \"test/**/*.test.mjs\"",
     "dist": "node build.mjs && node tools/pack.mjs",
     "pack": "node tools/pack-zip.mjs",
+    "pack-app": "node tools/pack-app.mjs",
     "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
