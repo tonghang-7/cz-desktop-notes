@@ -43,6 +43,16 @@ for (const must of ['dist/main/index.js', 'dist/preload/index.js', 'dist/rendere
   if (!fs.existsSync(path.join(srcDir, must))) fail(`缺 ${must}，产物不完整`);
 }
 
+// 产物里的版本号和项目根对不上，就绝对不能打包 —— 装上去之后 app.getVersion()
+// 返回的还是旧版本，客户端会一直认为「有新版」，每次启动都更新一遍，永远好不了。
+const appPkg = JSON.parse(fs.readFileSync(path.join(srcDir, 'package.json'), 'utf8'));
+if (appPkg.version !== pkg.version) {
+  fail(
+    `产物版本是 ${appPkg.version}，项目版本是 ${pkg.version} —— 先重跑 npm run dist 再打包。\n` +
+      '  这种包装上去会让客户端反复认为有新版，是个死循环。'
+  );
+}
+
 /** 收集文件，名字统一成 posix 相对路径（tar 只认这个） */
 function walk(dir, prefix, out) {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
