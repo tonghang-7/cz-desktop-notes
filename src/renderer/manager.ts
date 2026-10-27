@@ -1,5 +1,5 @@
 /**
- * 管理窗：便签列表、编辑器、归档、卡片尺寸。
+ * 管理窗：便签列表、编辑器、归档、设置面板。
  *
  * 这个进程不直接改数据 —— 所有写操作都通过 IPC 交给主进程，主进程落盘后广播新的 db，
  * 这里收到再整体重渲染。单向数据流省掉了两个进程各存一份状态对不上的可能。
@@ -23,8 +23,8 @@ const archiveEl = document.getElementById('archive') as HTMLDetailsElement;
 const archiveList = document.getElementById('archive-list') as HTMLUListElement;
 const archiveCount = document.getElementById('archive-count') as HTMLElement;
 const btnNew = document.getElementById('btn-new') as HTMLButtonElement;
-const btnSize = document.getElementById('btn-size') as HTMLButtonElement;
-const sizePanel = document.getElementById('size-panel') as HTMLElement;
+const btnSettings = document.getElementById('btn-settings') as HTMLButtonElement;
+const settingsPanel = document.getElementById('settings-panel') as HTMLElement;
 const sizeW = document.getElementById('size-w') as HTMLInputElement;
 const sizeH = document.getElementById('size-h') as HTMLInputElement;
 const sizeWOut = document.getElementById('size-w-out') as HTMLOutputElement;
@@ -600,18 +600,18 @@ function onSizeInput() {
 function wire() {
   btnNew.addEventListener('click', () => void createNew());
 
-  btnSize.addEventListener('click', () => {
-    sizePanel.hidden = !sizePanel.hidden;
+  btnSettings.addEventListener('click', () => {
+    settingsPanel.hidden = !settingsPanel.hidden;
   });
 
   sizeW.addEventListener('input', onSizeInput);
   sizeH.addEventListener('input', onSizeInput);
 
   document.addEventListener('click', (e) => {
-    if (sizePanel.hidden) return;
+    if (settingsPanel.hidden) return;
     const target = e.target as Node;
-    if (sizePanel.contains(target) || btnSize.contains(target)) return;
-    sizePanel.hidden = true;
+    if (settingsPanel.contains(target) || btnSettings.contains(target)) return;
+    settingsPanel.hidden = true;
   });
 
   cfgAutoLaunch.addEventListener('change', () => {

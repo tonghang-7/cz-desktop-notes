@@ -719,7 +719,7 @@ body.mg {
   color: #b03a30;
 }
 
-.mg__sizepanel {
+.mg__settingspanel {
   position: fixed;
   top: 64px;
   right: 22px;
