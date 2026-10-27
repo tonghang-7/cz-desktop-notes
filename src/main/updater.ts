@@ -17,7 +17,7 @@ import { app, net } from 'electron';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { extractTarGz, isNewer } from './update-format';
 
 const REPO = 'tonghang-7/cz-desktop-notes';
 const API = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -41,18 +41,6 @@ function pendingFile() {
 
 function applyingFile() {
   return path.join(updateDir(), 'applying.json');
-}
-
-/** "0.5.1" > "0.5.0" 这类比较，只认 x.y.z 数字 */
-function isNewer(a: string, b: string): boolean {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    const x = pa[i] || 0;
-    const y = pb[i] || 0;
-    if (x !== y) return x > y;
-  }
-  return false;
 }
 
 function rm(target: string) {
@@ -92,35 +80,6 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
   };
 }
 
-/** 解 tar.gz 到目录。只处理普通文件，挡掉路径穿越。 */
-function extractTarGz(gz: Buffer, outDir: string) {
-  const tar = zlib.gunzipSync(gz);
-  const base = path.resolve(outDir);
-  let off = 0;
-
-  while (off + 512 <= tar.length) {
-    const header = tar.subarray(off, off + 512);
-    if (header.every((b) => b === 0)) break; // 两个全零块 = 结束
-
-    const rawName = header.subarray(0, 100).toString('utf8').replace(/\0[\s\S]*$/, '');
-    const sizeStr = header.subarray(124, 136).toString('utf8').replace(/\0[\s\S]*$/, '').trim();
-    const size = parseInt(sizeStr || '0', 8) || 0;
-    const type = String.fromCharCode(header[156]);
-
-    off += 512;
-    if (type === '0' || type === '\0') {
-      const target = path.resolve(base, rawName);
-      // 挡掉 ../ 和绝对路径：解包写到程序目录里，这个洞必须堵
-      if (target !== base && !target.startsWith(base + path.sep)) {
-        throw new Error(`包里有非法路径：${rawName}`);
-      }
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, tar.subarray(off, off + size));
-    }
-    off += Math.ceil(size / 512) * 512;
-  }
-}
-
 /**
  * 下载增量包并解到 update/app.new/。不替换，只是准备好。
  * @returns 包里的 electronVersion
@@ -139,7 +98,8 @@ export async function downloadUpdate(info: UpdateInfo): Promise<string> {
   const staged = path.join(dir, 'app.new');
   rm(staged);
   fs.mkdirSync(staged, { recursive: true });
-  extractTarGz(buf, staged);
+  const written = extractTarGz(buf, staged);
+  if (written === 0) throw new Error('包里没有任何文件');
 
   const metaFile = path.join(staged, 'update.json');
   if (!fs.existsSync(metaFile)) throw new Error('包里没有 update.json');

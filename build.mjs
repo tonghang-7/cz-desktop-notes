@@ -20,12 +20,20 @@ const targets = [
     platform: 'node',
     target: 'node22',
     format: 'cjs',
-    external: ['electron', './db-format'],
+    external: ['electron', './db-format', './update-format'],
   },
   {
     // 单独出一份给 node --test 用：db-format 不依赖 electron，测试要能直接 require 它。
     entryPoints: ['src/main/db-format.ts'],
     outfile: 'dist/main/db-format.js',
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+  },
+  {
+    // 同上：热更新的纯逻辑（版本比较、解包）不依赖 electron，测试要能单独 require。
+    entryPoints: ['src/main/update-format.ts'],
+    outfile: 'dist/main/update-format.js',
     platform: 'node',
     target: 'node22',
     format: 'cjs',
