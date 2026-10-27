@@ -55,6 +55,8 @@ const api = {
   /** 已经下好、等重启生效的版本 */
   pendingUpdate: (): Promise<{ version: string; at: number } | null> =>
     ipcRenderer.invoke('update:pending'),
+  /** 上次安装失败的原因（打包版没控制台，只能靠这个回传） */
+  lastUpdateError: (): Promise<string | null> => ipcRenderer.invoke('update:lastError'),
   /** 重启应用（安装更新后由用户点） */
   relaunchApp: (): Promise<void> => ipcRenderer.invoke('update:relaunch'),
   /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */

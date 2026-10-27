@@ -647,8 +647,18 @@ function wire() {
   });
 
   // 已经下好、等重启才生效的更新（上次点完安装但没重启）
-  void window.api.pendingUpdate().then((p) => {
+  void window.api.pendingUpdate().then(async (p) => {
     if (!p) return;
+    // 上次安装失败过的话，pending 还留着（留着才能重试）。
+    // 这时必须把失败原因说出来 —— 否则用户只会看到「点了重启，什么都没变」。
+    const err = await window.api.lastUpdateError();
+    if (err) {
+      const first = err.split('\n').filter(Boolean).pop() || err;
+      cfgTip.textContent = `v${p.version} 安装失败：${first}`;
+      btnRelaunch.textContent = '再试一次';
+      btnRelaunch.hidden = false;
+      return;
+    }
     cfgTip.textContent = `v${p.version} 已下载，重启后生效`;
     btnRelaunch.hidden = false;
   });

@@ -43,6 +43,15 @@ function applyingFile() {
   return path.join(updateDir(), 'applying.json');
 }
 
+/**
+ * 上一次安装失败的原因。
+ * 打在磁盘上而不是只 console.error —— 打包版没有控制台，用户看到的只是
+ * 「点了重启，什么都没变」，没有这个文件就只能靠猜。
+ */
+function errorFile() {
+  return path.join(updateDir(), 'last-error.txt');
+}
+
 function rm(target: string) {
   try {
     fs.rmSync(target, { recursive: true, force: true });
@@ -148,29 +157,62 @@ export function applyPendingUpdate(): 'applied' | 'cleaned' | 'none' | 'failed' 
   if (fs.existsSync(applyingFile())) {
     rm(applyingFile());
     rm(oldPath);
+    rm(`${appPath}.staged`);
     return 'cleaned';
   }
 
   const pending = readPending();
   const staged = path.join(updateDir(), 'app.new');
+  // 和 app 同盘的临时目录。Windows 下跨盘 rename 会抛 EXDEV，
+  // 而 app.new 在 userData（通常是 C: 的 %APPDATA%），程序可能在 D:/E: —— 见下面的注释。
+  const local = `${appPath}.staged`;
   if (!pending || !fs.existsSync(staged)) return 'none';
 
   try {
     rm(oldPath);
+    rm(local);
+
+    // 先把新代码复制到目标盘，再去动 app 目录。
+    // 顺序很重要：这一步失败时 app 还是原样，不需要任何回滚。
+    // （早期版本直接 rename(app.new → app)，在程序装在非 C 盘时必然失败，
+    //   而我本地测试时 userData 和程序都在 E 盘，掩盖了这个 bug。）
+    fs.cpSync(staged, local, { recursive: true });
+
     fs.renameSync(appPath, oldPath); // 想反悔就把它改回来
     fs.writeFileSync(applyingFile(), JSON.stringify({ from: app.getVersion(), to: pending.version }));
     try {
-      fs.renameSync(staged, appPath);
+      fs.renameSync(local, appPath); // 同盘，瞬间完成
     } catch (err) {
       fs.renameSync(oldPath, appPath); // 换不上就退回原样
       throw err;
     }
     rm(pendingFile());
+    rm(staged);
+    rm(errorFile());
     return 'applied';
   } catch (err) {
-    console.error('[update] 安装失败，已回滚：', err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[update] 安装失败，已回滚：', msg);
+    // 打包版没有控制台。失败必须留痕，否则用户看到的只是「点了重启没反应」。
+    try {
+      fs.mkdirSync(updateDir(), { recursive: true });
+      fs.writeFileSync(errorFile(), `${new Date().toISOString()}  ${pending.version}\n${msg}\n`);
+    } catch {
+      // 连错误都写不下去，那就只能算了
+    }
     rm(applyingFile());
+    rm(local);
     return 'failed';
+  }
+}
+
+/** 上次安装失败的原因。UI 用它在 pending 状态下给出提示。 */
+export function lastUpdateError(): string | null {
+  try {
+    const text = fs.readFileSync(errorFile(), 'utf8').trim();
+    return text || null;
+  } catch {
+    return null;
   }
 }
 

@@ -220,6 +220,8 @@ function registerIpc() {
 
   ipcMain.handle('update:pending', () => updater.readPending());
 
+  ipcMain.handle('update:lastError', () => updater.lastUpdateError());
+
   ipcMain.handle('update:relaunch', () => {
     // 同上：不放锁的话新实例会被自己挡住
     app.releaseSingleInstanceLock();
