@@ -56,7 +56,7 @@ body.np {
   width: 38px;
   height: 3px;
   border-radius: 2px;
-  background: rgba(60, 45, 15, 0.24);
+  background: rgba(60, 45, 15, 0.45);
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
