@@ -31,6 +31,10 @@ const api = {
     ipcRenderer.invoke('image:open', fileName),
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('ui:notify', title, body),
+  /** 当前版本号，比如 0.5.0 */
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  /** 用默认浏览器打开最新 Release 页（程序自己不联网） */
+  openReleases: (): Promise<void> => ipcRenderer.invoke('app:openReleases'),
   /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */
   openManager: (fromCard?: boolean): Promise<void> =>
     ipcRenderer.invoke('ui:open-manager', fromCard),

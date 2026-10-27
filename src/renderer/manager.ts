@@ -37,6 +37,8 @@ const btnDataDirDefault = document.getElementById('btn-datadir-default') as HTML
 const btnHotkey = document.getElementById('btn-hotkey') as HTMLButtonElement;
 const cfgHotkey = document.getElementById('cfg-hotkey') as HTMLOutputElement;
 const cfgTip = document.getElementById('cfg-tip') as HTMLElement;
+const cfgVersion = document.getElementById('cfg-version') as HTMLElement;
+const btnCheckUpdate = document.getElementById('btn-check-update') as HTMLButtonElement;
 
 let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
 let selectedId: string | null = null;
@@ -624,6 +626,17 @@ function wire() {
     btnHotkey.textContent = '按组合键…';
     btnHotkey.classList.add('is-recording');
     cfgTip.textContent = '按想要的组合键，Esc 取消';
+  });
+
+  // 版本号放在这儿，是为了让人自己就能判断「要不要更新」——
+  // 不联网查，只把当前版本摆出来，点一下去发布页看最新的。
+  void window.api.getVersion().then((v) => {
+    cfgVersion.textContent = `v${v}`;
+  });
+
+  btnCheckUpdate.addEventListener('click', () => {
+    void window.api.openReleases();
+    cfgTip.textContent = '已在浏览器打开发布页 —— 最新版本、改了什么、下载都在那里';
   });
 
   document.addEventListener('keydown', (e) => {

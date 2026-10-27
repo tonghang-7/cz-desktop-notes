@@ -185,6 +185,20 @@ function registerIpc() {
     if (Notification.isSupported()) new Notification({ title, body }).show();
   });
 
+  ipcMain.handle('app:version', () => app.getVersion());
+
+  /**
+   * 打开发布页。
+   *
+   * 刻意让程序自己不联网 —— 请求是浏览器发的，所以 README 那句
+   * 「no account, no network, no telemetry」仍然成立。
+   * 也刻意不做自动替换：绿色版要替换自己的 exe，那是杀软最敏感的行为，
+   * 换错一次程序就废了，省下的不过是手动解压那十秒。
+   */
+  ipcMain.handle('app:openReleases', () => {
+    void shell.openExternal('https://github.com/tonghang-7/cz-desktop-notes/releases/latest');
+  });
+
   ipcMain.handle('settings:update', (_e, patch: Partial<Settings>) => {
     const before = store.getDb().settings;
     store.updateSettings(patch);
