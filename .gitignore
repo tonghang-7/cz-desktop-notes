@@ -17,3 +17,7 @@ tools/probe-canvas/
 
 # 录制演示 GIF 的中间产物
 .gifframes/
+.frames/
+
+# 开发调试脚本：要手开 CDP 端口，读者跑不起来
+tools/dev/
