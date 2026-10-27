@@ -1,6 +1,6 @@
 {
   "name": "cz-desktop-notes",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Stack-style desktop sticky notes: one card at a time, fold a corner to tear it off, the next one comes up.",
   "main": "dist/main/index.js",
