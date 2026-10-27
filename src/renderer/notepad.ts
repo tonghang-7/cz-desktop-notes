@@ -709,7 +709,7 @@ function attachGesture(
     }
 
     // 摘除只有两条路：折角撕掉（foldThis 看折角距离）、向上拖翻页（看 -dy）。
-    // 早先还有一条「横向拖过 160px 也算摘掉」，已移除 —— 见 docs/06 的 CR-002。
+    // 早先还有一条「横向拖过 160px 也算摘掉」，已移除 —— 见 docs/变更与决策记录.md 的 CR-002。
     const shouldFlip = !cancelled && (foldThis ? curDist > threshold : -dy > threshold);
 
     if (shouldFlip) {
