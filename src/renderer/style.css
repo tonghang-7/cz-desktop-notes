@@ -778,6 +778,32 @@ body.mg {
   white-space: nowrap;
 }
 
+/* ── 卡片上的图片：占上部约 6 成，文字压到下面 ── */
+.card.has-image {
+  padding-top: 0;
+}
+
+.card__img {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: block;
+  width: 100%;
+  height: 58%;
+  object-fit: cover;
+  object-position: center;
+  border-radius: 4px 4px 0 0;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.card.has-image .card__text {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 20px;
+  height: 30%;
+}
+
 /* ── 时限：卡片右下角一条会缩的细线 ── */
 .card__due {
   position: absolute;

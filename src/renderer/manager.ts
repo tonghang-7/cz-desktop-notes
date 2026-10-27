@@ -604,6 +604,25 @@ function wire() {
     }
   });
 
+  // 粘贴图片：贴到当前选中的那张
+  window.addEventListener('paste', (e) => {
+    const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+    if (!item) return;
+    const file = item.getAsFile();
+    const id = selectedId;
+    if (!file || !id) return;
+    e.preventDefault();
+    void (async () => {
+      try {
+        const buf = await file.arrayBuffer();
+        const name = await window.api.saveImage(buf, file.type || 'image/png');
+        await window.api.setImage(id, name);
+      } catch (err) {
+        console.warn('[paste] 图片存盘失败', err);
+      }
+    })();
+  });
+
   archiveEl.addEventListener('toggle', () => {
     if (archiveEl.open && db.archive.length === 0) {
       archiveEl.open = false;

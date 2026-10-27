@@ -111,6 +111,18 @@ test('normalizeDb：设了时限的 dueAt / dueSetAt 要留住', () => {
   assert.equal(db.notes[0].dueSetAt, 1_699_999_000_000);
 });
 
+test('normalizeDb：老数据没有 image，补成 null', () => {
+  const db = normalizeDb(validDb());
+  assert.equal(db.notes[0].image, null);
+});
+
+test('normalizeDb：image 的文件名要留住（存的是名字不是路径）', () => {
+  const raw = validDb();
+  raw.notes[0].image = 'a1b2c3.png';
+  const db = normalizeDb(raw);
+  assert.equal(db.notes[0].image, 'a1b2c3.png');
+});
+
 test('normalizeDb：老数据没有 autoLaunch，补成默认的 false', () => {
   const db = normalizeDb(validDb());
   assert.equal(db.settings.autoLaunch, false);

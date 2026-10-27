@@ -1,5 +1,7 @@
 import { app, dialog, ipcMain, Notification, shell } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import * as store from './store';
 import { DB_VERSION } from './db-format';
 import * as W from './windows';
@@ -9,6 +11,19 @@ import { trace } from './perf';
 import type { NoteColor, Settings } from '../shared/types';
 
 app.setAppUserModelId('dev.cangze.czdesktopnotes');
+
+/**
+ * 附件图片用 data URL 交给渲染进程，不走自定义协议。
+ *
+ * 走过一次 czattach:// 的弯路：自定义协议被 Chromium 当成跨源，canvas 一读像素就 taint，
+ * 于是 drawElementImage 抓图时那张图直接被跳过 —— 折纸抓到的是没有图片的空白纸。
+ * data: URL 是同源的，不会 taint，能抓。
+ */
+function mimeOf(name: string) {
+  if (/\.jpe?g$/i.test(name)) return 'image/jpeg';
+  if (/\.webp$/i.test(name)) return 'image/webp';
+  return 'image/png';
+}
 
 app.commandLine.appendSwitch('enable-features', 'CanvasDrawElement');
 
@@ -72,6 +87,31 @@ function registerIpc() {
   ipcMain.handle('note:due', (_e, id: string, dueAt: number | null) => {
     store.setNoteDue(id, dueAt);
     W.broadcastDb();
+  });
+
+  /** 把粘贴进来的图片写进附件目录，返回文件名（不是路径 —— 数据目录会变）。 */
+  ipcMain.handle('image:save', (_e, data: ArrayBuffer, mime: string) => {
+    const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+    const name = `${randomUUID()}.${ext}`;
+    const dir = store.attachmentsDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), Buffer.from(data));
+    return name;
+  });
+
+  ipcMain.handle('note:image', (_e, id: string, fileName: string | null) => {
+    store.setNoteImage(id, fileName);
+    W.broadcastDb();
+  });
+
+  /** 读附件，返回 data URL。读不到返回 null（文件被人手动删了也不该崩）。 */
+  ipcMain.handle('image:read', (_e, fileName: string) => {
+    try {
+      const buf = fs.readFileSync(path.join(store.attachmentsDir(), path.basename(fileName)));
+      return `data:${mimeOf(fileName)};base64,${buf.toString('base64')}`;
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle('ui:notify', (_e, title: string, body: string) => {
@@ -179,6 +219,7 @@ async function bootstrap() {
   trace('bootstrap start');
   store.initStore();
   trace('store ready');
+
 
   // 自启可能在别处被改过（系统设置、旧版本残留），启动时以配置为准同步一次。
   if (store.getDb().settings.autoLaunch && app.isPackaged) {

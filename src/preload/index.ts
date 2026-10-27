@@ -17,6 +17,15 @@ const api = {
   /** dueAt 传 null 表示清掉时限 */
   setDue: (id: string, dueAt: number | null): Promise<void> =>
     ipcRenderer.invoke('note:due', id, dueAt),
+  /** 把图片写进附件目录，返回文件名 */
+  saveImage: (data: ArrayBuffer, mime: string): Promise<string> =>
+    ipcRenderer.invoke('image:save', data, mime),
+  /** fileName 传 null 表示去掉这张卡的图 */
+  setImage: (id: string, fileName: string | null): Promise<void> =>
+    ipcRenderer.invoke('note:image', id, fileName),
+  /** 读附件，拿 data URL（同源，canvas 能和 drawElementImage 一起抓） */
+  readImage: (fileName: string): Promise<string | null> =>
+    ipcRenderer.invoke('image:read', fileName),
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('ui:notify', title, body),
   /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */

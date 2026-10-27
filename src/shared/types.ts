@@ -10,6 +10,12 @@ export interface Note {
   dueAt: number | null;
   /** 设时限的那一刻。画「还剩多少」的细线要知道总时长，光有到期时间算不出比例 */
   dueSetAt: number | null;
+  /**
+   * 附件的文件名（不是路径）。
+   * 存文件名是因为数据目录可以换 —— 存绝对路径等于把数据和位置焊死。
+   * 文件在 <数据目录>/attachments/ 下。
+   */
+  image: string | null;
 }
 
 export interface Settings {

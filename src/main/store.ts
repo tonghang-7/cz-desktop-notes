@@ -70,6 +70,23 @@ function moveFile(from: string, to: string) {
   }
 }
 
+/** 搬整个目录（附件用）。跨盘符一样是 EXDEV，退回复制 + 删。 */
+function moveDir(from: string, to: string) {
+  try {
+    fs.renameSync(from, to);
+    return;
+  } catch {
+    // 多半是跨盘符
+  }
+  fs.cpSync(from, to, { recursive: true });
+  try {
+    fs.rmSync(from, { recursive: true, force: true });
+  } catch {
+    // 旧目录删不掉只是浪费点空间 —— 图已经复制到新位置了，功能不受影响
+    console.warn('[store] 旧附件目录没删掉（不影响使用）：', from);
+  }
+}
+
 export function initStore(): NoteDb {
   // NOTES_DATA_DIR 可以把数据放到指定目录：便携版、放网盘同步、多套数据切换都用得上。
   // 指定了就不再走 userData，也不做旧目录迁移（那不是默认位置）。
@@ -175,6 +192,33 @@ export function getDataDir() {
   return path.dirname(dataFile);
 }
 
+/** 附件目录。跟 data.json 同住一个数据目录，换目录时要一起搬。 */
+export function attachmentsDir() {
+  return path.join(path.dirname(dataFile), 'attachments');
+}
+
+function removeAttachment(fileName: string) {
+  try {
+    fs.unlinkSync(path.join(attachmentsDir(), fileName));
+  } catch {
+    // 文件本来就不在：不是错误
+  }
+}
+
+/**
+ * 换图 / 清图。旧附件顺手删掉 —— 一张图只归一张便签，留着就是纯泄漏。
+ */
+export function setNoteImage(id: string, fileName: string | null) {
+  let old: string | null = null;
+  mutate((d) => {
+    const note = d.notes.find((n) => n.id === id);
+    if (!note) return;
+    old = note.image;
+    note.image = fileName;
+  });
+  if (old && old !== fileName) removeAttachment(old);
+}
+
 /**
  * 换数据目录：把 data.json 搬过去，不是复制 ——
  * 复制会留下两份，两边各改各的，早晚要合并冲突。
@@ -183,10 +227,22 @@ export function getDataDir() {
  * 搬的过程中出错就把文件搬回原处，绝不停在「一半在这、一半在那」的状态。
  */
 export function setDataDir(dir: string | null): { ok: boolean; dir: string; reason?: string } {
+  // 环境变量优先级最高，此时「默认位置」不是 userData 而是那个目录。
+  // 混着来会让搬迁路径算错（曾把文件搬到一个不会回读的地方），所以干脆不让改。
+  if (process.env.NOTES_DATA_DIR) {
+    return {
+      ok: false,
+      dir: path.dirname(dataFile),
+      reason: '数据位置由环境变量 NOTES_DATA_DIR 指定，在设置里改不了',
+    };
+  }
+
   const target = dir
     ? path.join(dir, 'data.json')
     : path.join(app.getPath('userData'), 'data.json');
   const from = dataFile;
+  const fromAtt = path.join(path.dirname(from), 'attachments');
+  const toAtt = path.join(path.dirname(target), 'attachments');
 
   if (path.resolve(target) === path.resolve(from)) {
     return { ok: true, dir: path.dirname(target) };
@@ -198,27 +254,50 @@ export function setDataDir(dir: string | null): { ok: boolean; dir: string; reas
       reason: `${target} 已经有一份 data.json，没有覆盖它`,
     };
   }
+  // 目标位置已经有图片，也不合并 —— 合并两个 attachments 等于替用户猜哪张图归谁
+  if (fs.existsSync(toAtt) && fs.readdirSync(toAtt).length > 0) {
+    return {
+      ok: false,
+      dir: path.dirname(from),
+      reason: `${toAtt} 里已经有图片附件，没有覆盖它`,
+    };
+  }
 
   flushSync();
 
   const hadFile = fs.existsSync(from);
-  let moved = false;
+  const hadAtt = fs.existsSync(fromAtt);
+  let movedFile = false;
+  let movedAtt = false;
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
+    // 顺序很重要：先搬图片，data.json 放最后。data.json 是「换完了」的旗标 ——
+    // 反过来会出现「数据过去了、图还在原地」，那种状态最难收拾。
+    if (hadAtt) {
+      moveDir(fromAtt, toAtt);
+      movedAtt = true;
+    }
     if (hadFile) {
       moveFile(from, target);
-      moved = true;
+      movedFile = true;
     }
     writeLocation(dir);
     initStore();
     return { ok: true, dir: getDataDir() };
   } catch (err) {
-    if (moved) {
+    if (movedFile) {
       try {
         moveFile(target, from);
       } catch {
         // 搬回去也失败了：两份都在，只能记下来让用户自己收拾
-        console.error('[store] 换目录失败且回滚失败，两处都可能留有 data.json');
+        console.error('[store] 换目录失败且 data.json 回滚失败，两处都可能留有一份');
+      }
+    }
+    if (movedAtt) {
+      try {
+        moveDir(toAtt, fromAtt);
+      } catch {
+        console.error('[store] 换目录失败且附件回滚失败，两处都可能留有图片');
       }
     }
     return {
@@ -283,6 +362,7 @@ export function createNote(partial: { text?: string; color?: NoteColor } = {}): 
     doneAt: null,
     dueAt: null,
     dueSetAt: null,
+    image: null,
   };
   mutate((d) => {
     d.notes.push(note);

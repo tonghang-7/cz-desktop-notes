@@ -67,6 +67,7 @@ function normalizeNote(raw: unknown): Note | null {
     doneAt: typeof r.doneAt === 'number' ? r.doneAt : null,
     dueAt: typeof r.dueAt === 'number' ? r.dueAt : null,
     dueSetAt: typeof r.dueSetAt === 'number' ? r.dueSetAt : null,
+    image: typeof r.image === 'string' && r.image ? r.image : null,
   };
 }
 

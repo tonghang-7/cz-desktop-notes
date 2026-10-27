@@ -77,19 +77,50 @@ function applyVars() {
   root.style.setProperty('--card-h', `${db.settings.cardHeight}px`);
 }
 
+/** 附件文件名 → data URL。渲染是同步的，图片必须提前读进内存。 */
+const imageCache = new Map<string, string>();
+
+/** 把当前用到的图片读成 data URL。读不到的跳过 —— 文件可能被用户手动删了。 */
+async function preloadImages(): Promise<void> {
+  const names = db.notes
+    .map((n) => n.image)
+    .filter((v): v is string => typeof v === 'string' && v.length > 0);
+  for (const name of names) {
+    if (imageCache.has(name)) continue;
+    const url = await window.api.readImage(name);
+    if (url) imageCache.set(name, url);
+  }
+}
+
 function buildCard(note: Note): HTMLElement {
   const el = document.createElement('article');
   el.className = 'card';
   el.dataset.color = note.color;
   el.dataset.id = note.id;
 
+  if (note.image) {
+    const url = imageCache.get(note.image);
+    if (url) {
+      const img = document.createElement('img');
+      img.className = 'card__img';
+      img.src = url;
+      img.alt = '';
+      img.draggable = false;
+      el.appendChild(img);
+      el.classList.add('has-image');
+    }
+  }
+
   const text = document.createElement('div');
   text.className = 'card__text';
   if (note.text.trim()) {
     text.textContent = note.text;
   } else {
-    text.textContent = '空白便签';
-    text.classList.add('card__text--empty');
+    // 有图的时候不必再顶一句「空白便签」—— 图本身就是内容
+    if (!note.image) {
+      text.textContent = '空白便签';
+      text.classList.add('card__text--empty');
+    }
   }
   el.appendChild(text);
 
@@ -428,6 +459,16 @@ function attachGesture(
     // 这一轮已经被重画换掉的话，抓到的图也没意义，直接放弃。
     if (!alive()) return;
     capturing = true;
+    // 图还没解码完就抓图，抓到的是空白 —— 先等它。
+    // 这是「卡片上带图片」引入的新竞态，不处理的话拖动时图会忽有忽无。
+    const shotImg = fold.shot.querySelector('img');
+    if (shotImg && !shotImg.complete) {
+      await shotImg.decode().catch(() => undefined);
+      if (!alive()) {
+        capturing = false;
+        return;
+      }
+    }
     const anyCtx = ctx as unknown as {
       drawElementImage(el: Element, dx: number, dy: number, dw?: number, dh?: number): unknown;
     };
@@ -729,6 +770,43 @@ function attachGesture(
   }
 }
 
+/** 把剪贴板图片存成附件，返回文件名。 */
+async function uploadImage(file: File): Promise<string | null> {
+  try {
+    const buf = await file.arrayBuffer();
+    return await window.api.saveImage(buf, file.type || 'image/png');
+  } catch (err) {
+    console.warn('[paste] 图片存盘失败', err);
+    return null;
+  }
+}
+
+/**
+ * 粘贴图片 → 贴到栈顶那张便签上。
+ *
+ * 系统截图（Win+Shift+S）之后按 Ctrl+V 就行。不去自己做截屏工具：
+ * 那只会做出一个比系统更差的截图器，而真正的缺口是「截完图没地方放」。
+ */
+async function handlePaste(e: ClipboardEvent) {
+  const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+  if (!item) return;
+  const file = item.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+
+  const name = await uploadImage(file);
+  if (!name) return;
+
+  const top = db.notes[0];
+  if (top) {
+    await window.api.setImage(top.id, name);
+  } else {
+    // 库里一张都没有：先建一张再接图，别让粘贴白白落空
+    const created = await window.api.createNote('');
+    await window.api.setImage(created.id, name);
+  }
+}
+
 async function addNote() {
   await window.api.createNote('');
   // 新建完就是准备写字，同样直接把光标放进去
@@ -737,6 +815,7 @@ async function addNote() {
 
 function wire() {
   btnAdd.addEventListener('click', addNote);
+  window.addEventListener('paste', (e) => void handlePaste(e));
   btnManage.addEventListener('click', () => void window.api.openManager());
   btnHide.addEventListener('click', () => void window.api.hideNotepad());
   document.addEventListener('keydown', (e) => {
@@ -755,6 +834,8 @@ function wire() {
 async function boot() {
   db = await window.api.getDb();
   applyVars();
+  // 图片要先落进内存再 render —— buildCard 是同步的，拿不到就是在画一张没有图的纸
+  await preloadImages();
   render();
   wire();
   startDueTicker();
@@ -762,7 +843,10 @@ async function boot() {
   window.api.onDbChanged((next) => {
     db = next;
     applyVars();
-    render();
+    void (async () => {
+      await preloadImages();
+      render();
+    })();
   });
 
   window.api.onShown(() => {
