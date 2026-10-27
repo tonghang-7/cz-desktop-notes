@@ -156,19 +156,21 @@ function renderList() {
   });
 }
 
-/** 今晚 24:00，也就是明天 0 点 */
-function tonightAt(): number {
-  const d = new Date();
-  d.setHours(24, 0, 0, 0);
-  return d.getTime();
+/**
+ * 时间戳 → datetime-local 的 value（本地时间，YYYY-MM-DDTHH:mm）。
+ * 不能拿 toISOString() 顶替 —— 那是 UTC，回填会差一个时区。
+ */
+function toLocalInput(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** 明天 9:00 */
-function tomorrowAt(): number {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(9, 0, 0, 0);
-  return d.getTime();
+/** datetime-local 的 value → 时间戳。格式里没有时区，new Date 会按本地时间解析，正是要的。 */
+function fromLocalInput(v: string): number | null {
+  if (!v) return null;
+  const ts = new Date(v).getTime();
+  return Number.isFinite(ts) ? ts : null;
 }
 
 function fmtDue(dueAt: number | null): string {
@@ -186,6 +188,12 @@ function fmtDue(dueAt: number | null): string {
 function updateEditorMeta(note: Note) {
   const dueVal = editor.querySelector<HTMLElement>('.ed__dueval');
   if (dueVal) dueVal.textContent = fmtDue(note.dueAt);
+
+  const dueInput = editor.querySelector<HTMLInputElement>('.ed__dueinput');
+  // 正在拨时间的时候别回填 —— 一次 db 广播回来就会把用户刚选的值冲掉
+  if (dueInput && document.activeElement !== dueInput) {
+    dueInput.value = note.dueAt === null ? '' : toLocalInput(note.dueAt);
+  }
 
   const pos = editor.querySelector('[data-role="pos"]');
   if (!pos) return;
@@ -268,8 +276,9 @@ function renderEditor() {
     if (id) flushSave(id, ta.value);
   });
 
-  // 时限：四个粗粒度预设 + 清除。便签的时限本来就是「今天/明天/一小时内」这种粒度，
-  // 给个日期选择器只会让人站在那儿纠结几点合适。
+  // 时限：一个原生的日期时间输入框。
+  // 预设按钮本质是「相对现在」的换算，既表达不了「周五 14:00 开会」这种，
+  // 也不如直接选来得自由 —— 所以不做了。
   const dueRow = document.createElement('div');
   dueRow.className = 'ed__due';
 
@@ -281,31 +290,32 @@ function renderEditor() {
   dueVal.className = 'ed__dueval';
   dueVal.textContent = fmtDue(note.dueAt);
 
-  const presets: { label: string; at: () => number }[] = [
-    { label: '1 小时', at: () => Date.now() + 3_600_000 },
-    { label: '3 小时', at: () => Date.now() + 3 * 3_600_000 },
-    { label: '今晚', at: tonightAt },
-    { label: '明天 9 点', at: tomorrowAt },
-  ];
+  const dueInput = document.createElement('input');
+  dueInput.type = 'datetime-local';
+  dueInput.className = 'ed__dueinput';
+  dueInput.value = note.dueAt === null ? '' : toLocalInput(note.dueAt);
+  // 不让选过去：设完立刻过期会马上触发抖动和通知，很怪
+  dueInput.min = toLocalInput(Date.now());
 
   const applyDue = (at: number | null) => {
     void window.api.setDue(note.id, at);
     dueVal.textContent = fmtDue(at);
   };
 
-  dueRow.appendChild(dueTag);
-  for (const p of presets) {
-    const b = document.createElement('button');
-    b.className = 'ed__duebtn';
-    b.textContent = p.label;
-    b.addEventListener('click', () => applyDue(p.at()));
-    dueRow.appendChild(b);
-  }
+  // 用 change 而不是 input：input 会在还在拨分钟数的时候就写一次盘
+  dueInput.addEventListener('change', () => {
+    applyDue(fromLocalInput(dueInput.value));
+  });
+
   const clearDue = document.createElement('button');
   clearDue.className = 'ed__duebtn';
   clearDue.textContent = '清除';
-  clearDue.addEventListener('click', () => applyDue(null));
-  dueRow.append(clearDue, dueVal);
+  clearDue.addEventListener('click', () => {
+    dueInput.value = '';
+    applyDue(null);
+  });
+
+  dueRow.append(dueTag, dueInput, clearDue, dueVal);
 
   const foot = document.createElement('div');
   foot.className = 'ed__foot';
