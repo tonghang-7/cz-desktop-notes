@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Notification, shell } from 'electron';
+import { app, clipboard, dialog, globalShortcut, ipcMain, Notification, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -25,6 +25,62 @@ function mimeOf(name: string) {
   return 'image/png';
 }
 
+/** 捕获热键。选 V 是因为带「粘贴 / 捕获」的语义，也不和呼出热键的候选撞车。 */
+const CAPTURE_ACCEL = 'Control+Alt+V';
+
+/**
+ * 把剪贴板变成一张置顶便签。图优先，没图就读文字，两样都没有就什么都不做。
+ *
+ * 图空的时候要重试几次：Win+Shift+S 刚把图写进剪贴板就按热键是常见操作，
+ * 读太早会拿到空图，用户那边的感受就是「按了没反应」。
+ */
+async function captureFromClipboard() {
+  // Electron 45 的 clipboard 换成了 W3C 那套异步 API：
+  // clipboard.read() → ClipboardItem[] → item.getType(mime) → Blob。
+  // 老的 readImage()/writeImage() 已经没有了，别照旧文档写。
+  const readItems = async (): Promise<Electron.ClipboardItem[]> => {
+    try {
+      return await clipboard.read();
+    } catch {
+      return [];
+    }
+  };
+  const hasImage = (items: Electron.ClipboardItem[]) =>
+    items.some((it) => it.types.some((t) => t.startsWith('image/')));
+
+  let items = await readItems();
+  // 截图刚写进剪贴板就读，偶尔还是空的 —— Win+Shift+S 之后立刻按热键很常见
+  for (let i = 0; i < 3 && !hasImage(items); i++) {
+    await new Promise((r) => setTimeout(r, 90));
+    items = await readItems();
+  }
+
+  for (const item of items) {
+    const imgType = item.types.find((t) => t.startsWith('image/'));
+    if (!imgType) continue;
+    const payload = await item.getType(imgType);
+    if (!(payload instanceof Blob)) continue;
+
+    const ext = imgType === 'image/jpeg' ? 'jpg' : imgType === 'image/webp' ? 'webp' : 'png';
+    const name = `${randomUUID()}.${ext}`;
+    const dir = store.attachmentsDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), Buffer.from(await payload.arrayBuffer()));
+
+    const note = store.createNote({}, true);
+    store.setNoteImage(note.id, name);
+    W.showNotepad();
+    W.broadcastDb();
+    return;
+  }
+
+  const text = (await clipboard.readText()).trim();
+  if (!text) return;
+  store.createNote({ text }, true);
+  W.showNotepad();
+  W.broadcastDb();
+}
+
 app.commandLine.appendSwitch('enable-features', 'CanvasDrawElement');
 
 if (process.env.NOTES_GPU !== '1') {
@@ -38,6 +94,7 @@ if (process.env.NOTES_GPU !== '1') {
 const trayHandlers: TrayHandlers = {
   toggle: () => W.toggleNotepad(),
   openManager: () => W.showManager(),
+  capture: () => void captureFromClipboard(),
   openDataFolder: () => {
     const file = store.getDataFile();
     shell.openPath(file ? path.dirname(file) : app.getPath('userData'));
@@ -243,6 +300,15 @@ async function bootstrap() {
     trace('hotkey bound', bound);
   } else {
     console.warn('[boot] all candidate accelerators are taken');
+  }
+
+  // 捕获热键：Ctrl+Alt+V 把剪贴板直接变成一张便签。
+  // 被占用就跳过 —— 一个次要功能不该阻塞启动。
+  try {
+    const ok = globalShortcut.register(CAPTURE_ACCEL, () => void captureFromClipboard());
+    if (!ok) console.warn(`[capture] ${CAPTURE_ACCEL} 已被别的程序占用，剪贴板捕获不可用`);
+  } catch {
+    console.warn(`[capture] ${CAPTURE_ACCEL} 注册失败`);
   }
 
   createTray(trayHandlers);

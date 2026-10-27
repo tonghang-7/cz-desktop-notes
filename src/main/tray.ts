@@ -10,6 +10,8 @@ function asset(name: string) {
 export interface TrayHandlers {
   toggle: () => void;
   openManager: () => void;
+  /** 从剪贴板（图或文字）直接生成一张便签。热键被占用时的备用入口。 */
+  capture: () => void;
   openDataFolder: () => void;
   quit: () => void;
 }
@@ -29,6 +31,7 @@ export function refreshTray(handlers: TrayHandlers) {
   const menu = Menu.buildFromTemplate([
     { label: '显示 / 隐藏便签', click: handlers.toggle },
     { label: '管理便签…', click: handlers.openManager },
+    { label: '从剪贴板新建便签（Ctrl + Alt + V）', click: handlers.capture },
     { type: 'separator' },
     { label: '打开数据文件夹', click: handlers.openDataFolder },
     { type: 'separator' },

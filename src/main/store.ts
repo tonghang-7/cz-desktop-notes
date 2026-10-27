@@ -353,7 +353,14 @@ export function mutate(fn: (d: NoteDb) => void): NoteDb {
   return db;
 }
 
-export function createNote(partial: { text?: string; color?: NoteColor } = {}): Note {
+/**
+ * @param atTop 放到栈顶。剪贴板捕获这类入口必须置顶 ——
+ *   否则新便签排在最后，而便签窗只显示栈顶那张，用户按了热键却什么都看不到。
+ */
+export function createNote(
+  partial: { text?: string; color?: NoteColor } = {},
+  atTop = false
+): Note {
   const note: Note = {
     id: newId(),
     text: partial.text ?? '',
@@ -365,7 +372,8 @@ export function createNote(partial: { text?: string; color?: NoteColor } = {}): 
     image: null,
   };
   mutate((d) => {
-    d.notes.push(note);
+    if (atTop) d.notes.unshift(note);
+    else d.notes.push(note);
   });
   return note;
 }

@@ -25,8 +25,15 @@ export function registerHotkey(toggle: () => void): string {
   return '';
 }
 
+/**
+ * 重绑呼出热键。
+ *
+ * 只注销自己这一个，不能 unregisterAll —— 程序里还有别的全局热键
+ * （Ctrl+Alt+V 剪贴板捕获），一把全注销会把它们一起弄没。
+ */
 export function rebindHotkey(toggle: () => void): string {
-  globalShortcut.unregisterAll();
+  if (active) globalShortcut.unregister(active);
+  active = '';
   return registerHotkey(toggle);
 }
 
@@ -41,7 +48,8 @@ export function setHotkey(
   toggle: () => void
 ): { ok: boolean; active: string; reason?: string } {
   const prev = active;
-  globalShortcut.unregisterAll();
+  // 同上：只注销自己这一个，别碰别的全局热键
+  if (prev) globalShortcut.unregister(prev);
 
   let ok = false;
   try {
