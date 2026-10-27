@@ -40,12 +40,12 @@ Windows 10+ · portable zip, no installer · no account, no telemetry. Nothing p
 
 **下载慢？** 官方直连实测不到 50KB/s，146MB 要等 50 分钟以上。可以走社区的加速镜像：
 
-[点此下载（镜像）](https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/download/v0.4.0/CZNotes-win64.zip)
+[点此下载（镜像）](https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/latest/download/CZNotes-win64.zip)
 
 或者把官方下载链接复制到 `https://ghfast.top/` 后面：
 
 ```
-https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/download/v0.4.0/CZNotes-win64.zip
+https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/latest/download/CZNotes-win64.zip
 ```
 
 关于这个镜像，有三件事得先说清楚：
