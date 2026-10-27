@@ -17,7 +17,7 @@ A single always-on-top window that shows one note at a time. Grab a corner, fold
 - **Capture without switching windows.** `Ctrl + Alt + V` turns whatever is on your clipboard — an image or plain text — into a fresh note on top of the stack, window included.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
 
-Windows 10+ · portable zip, no installer · no account, no network, no telemetry. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it. You can move that file elsewhere from the settings panel.
+Windows 10+ · portable zip, no installer · no account, no telemetry. Nothing phones home: the only network call in the whole app is the update check you trigger yourself — it never runs on startup, and it sends nothing about you. Everything lives in one readable JSON file at `%APPDATA%\cz-desktop-notes\data.json` — back it up, sync it, or hand-edit it. You can move that file elsewhere from the settings panel.
 
 <sub>Fold rendering uses Chromium's experimental `CanvasDrawElement`; where unavailable it silently falls back to a CSS 3D flip, so the app still works.</sub>
 
