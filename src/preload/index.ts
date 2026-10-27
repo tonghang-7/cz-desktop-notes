@@ -26,6 +26,9 @@ const api = {
   /** 读附件，拿 data URL（同源，canvas 能和 drawElementImage 一起抓） */
   readImage: (fileName: string): Promise<string | null> =>
     ipcRenderer.invoke('image:read', fileName),
+  /** 用系统看图程序打开（返回错误信息，成功时是 null） */
+  openImage: (fileName: string): Promise<string | null> =>
+    ipcRenderer.invoke('image:open', fileName),
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('ui:notify', title, body),
   /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */

@@ -161,6 +161,16 @@ function registerIpc() {
     W.broadcastDb();
   });
 
+  /**
+   * 交给系统看图程序打开附件。
+   * 320×145 的小框里看不出截图里的字，缩放、翻页这些能力系统工具已经有，没必要重做。
+   */
+  ipcMain.handle('image:open', async (_e, fileName: string) => {
+    const file = path.join(store.attachmentsDir(), path.basename(fileName));
+    const err = await shell.openPath(file);
+    return err || null;
+  });
+
   /** 读附件，返回 data URL。读不到返回 null（文件被人手动删了也不该崩）。 */
   ipcMain.handle('image:read', (_e, fileName: string) => {
     try {

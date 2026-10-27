@@ -789,10 +789,15 @@ body.mg {
   display: block;
   width: 100%;
   height: 58%;
-  object-fit: cover;
+  /* contain 而不是 cover：320x145 的框里塞 1920x1080 的截图，cover 会把上下各裁掉 8.6%。
+     留白用极淡的底色，看起来像照片贴在纸上。 */
+  object-fit: contain;
   object-position: center;
+  background: rgba(60, 45, 15, 0.04);
   border-radius: 4px 4px 0 0;
-  pointer-events: none;
+  /* 不拦事件：图表上的 pointerdown 照样冒泡到卡片，折纸手势不受影响 */
+  pointer-events: auto;
+  cursor: zoom-in;
   -webkit-user-drag: none;
 }
 

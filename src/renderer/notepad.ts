@@ -683,7 +683,18 @@ function attachGesture(
       } else {
         card.style.transform = '';
       }
+      // 轻点落在图片上 = 「我要看这张图的大图」，落在别处 = 「我要改这张便签」。
+      // 用按下时的坐标判断，图有 pointer-events:auto 也不会拦掉折纸手势（事件照样冒泡）。
+      const imgRect = card.querySelector('.card__img')?.getBoundingClientRect();
+      const onImage =
+        !!imgRect &&
+        sx >= imgRect.left &&
+        sx <= imgRect.right &&
+        sy >= imgRect.top &&
+        sy <= imgRect.bottom;
+
       if (pendingRender) render();
+      else if (onImage && note.image) void window.api.openImage(note.image);
       // 传 true：轻点卡片的目的就是改这张，进去直接把光标放编辑器里
       else void window.api.openManager(true);
       return;
