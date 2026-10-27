@@ -183,6 +183,27 @@ body.np {
   mask-image: linear-gradient(180deg, #000 84%, transparent 100%);
 }
 
+/*
+ * 长文本用滚轮看。拖拽已经被摘除手势占着，滚轮是空的 —— 两者不冲突，
+ * 这也是唯一不会破坏这张「纸」的读法：按住还是撕，滚轮只是把纸后面的字翻上来。
+ */
+.card__text {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.card__text::-webkit-scrollbar {
+  display: none;
+}
+
+/* 滚到底就把底部渐隐摘掉，否则最后一行永远糊在渐变里看不清 */
+.card__text.at-end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 .card__text--empty {
   color: rgba(63, 54, 38, 0.3);
   font-style: italic;

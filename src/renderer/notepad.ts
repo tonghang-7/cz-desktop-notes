@@ -122,6 +122,15 @@ function buildCard(note: Note): HTMLElement {
       text.classList.add('card__text--empty');
     }
   }
+
+  // 滚到底就摘掉底部渐隐，否则最后一行永远糊在渐变里。scroll 不冒泡，不影响卡片手势。
+  text.addEventListener('scroll', () => {
+    text.classList.toggle(
+      'at-end',
+      text.scrollTop + text.clientHeight >= text.scrollHeight - 2
+    );
+  });
+
   el.appendChild(text);
 
   // 时限细线：一条浅色轨道 + 一条暖色剩余量，缩到 0 就是到期
