@@ -35,6 +35,7 @@ body.np {
 }
 
 .np__bar {
+  position: relative;
   height: var(--bar-h);
   flex: 0 0 auto;
   display: flex;
@@ -42,6 +43,22 @@ body.np {
   justify-content: space-between;
   -webkit-app-region: drag;
   padding-left: 6px;
+}
+
+/*
+ * 窗口可以拖的地方就是这一条，但之前它完全是透明的 —— 没人看得出哪里能抓。
+ * 放一个居中的短横条当把手：够明显，又不至于像工具栏那样把这张「纸」压出边框。
+ */
+.np__grip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 38px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(60, 45, 15, 0.24);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .np__count {
