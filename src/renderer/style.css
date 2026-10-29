@@ -135,6 +135,15 @@ body.np {
   transform: translateY(15px) scaleX(0.975);
 }
 
+/*
+ * 折走的那半边底下就是下一张便签 —— 这是对的，纸折走了，下面那张就该露出来。
+ *
+ * 曾经在这里给 #stage.is-lifting .peek 加过 filter 把下面压暗，那是误判：
+ * 当时看到的「折起来之后还是第一张」，真正原因是卡片根本没隐藏
+ * （入场动画 .card.enter 的 fill-mode 握住了 opacity，把 inline 的 0 压掉了）。
+ * 修好隐藏之后，下面那张露出来正好是对的，不需要再遮。
+ */
+
 .card {
   position: absolute;
   top: 0;

@@ -27,7 +27,18 @@ const RX_MAX = 82; // 最大掀角。不到 90°，所以永远看不到纸背
 
 // ── 折叠路径（默认）──
 const FOLD_PAD = 36; // canvas 四周留白，折出去的部分和阴影要地方画
-const FOLD_RATIO = 0.42; // 摘除阈值 = 卡片对角线 × 0.42
+/**
+ * 摘除阈值：量的是「折痕离卡片中心还剩多远」，不是「手指走了多远」。
+ *
+ * 早先是「折角距离 > 对角线 × 0.42」，那个量以抓取点为原点 —— 抓在卡片底边
+ * 只要走 231px（窗口够高，走得完），抓在下半部分靠中间时最多只能走一百多像素，
+ * 物理上永远够不到阈值，手感就是「怎么拖都不撕」。换成到中心的距离之后，
+ * 同一个折痕深度无论从哪儿抓都是同一个数。
+ *
+ * 0.2 = 半对角线的 20%（394×250 的卡片约 47px），此时折掉的纸约占三成。
+ * 调大更难撕，调小更容易。
+ */
+const FOLD_DEPTH_RATIO = 0.2;
 const FOLD_DAMP = 0.85; // 手指走 100px，折痕只推进 85px
 const FLAT = 1.5; // 折角小于这个距离就算摊平：画布改成画整张摊平的纸
 const FLAT_HIDE = 3; // 画布接管真卡片的门槛。比 FLAT 大一点，避免临界处来回抖。
@@ -239,7 +250,14 @@ function render() {
   for (let i = extra; i >= 1; i--) stage.appendChild(buildPeek(notes[i], i));
 
   const card = buildCard(top);
-  if (top.id !== lastTopId) card.classList.add('enter');
+  if (top.id !== lastTopId) {
+    card.classList.add('enter');
+    // 入场动画是 animation-fill-mode: both，播完之后它仍然握着 opacity: 1 和 transform。
+    // 而 **CSS 动画的优先级高于 inline style** —— 手势里那句 `card.style.opacity = '0'`
+    // 会被整条压掉：纸折起来了，真卡片还亮着，折角旁边原样站着第一张。
+    // 动画放完就摘掉 class，把控制权还给 inline style。
+    card.addEventListener('animationend', () => card.classList.remove('enter'), { once: true });
+  }
   stage.appendChild(card);
   paintDue(card, top, Date.now());
 
@@ -295,20 +313,23 @@ function attachGesture(
   const CY = FOLD_PAD;
   const CW = db.settings.cardWidth;
   const CH = db.settings.cardHeight;
-  const threshold = fold
-    ? Math.hypot(CW, CH) * FOLD_RATIO
-    : Math.max(64, db.settings.cardHeight * FLIP_RATIO);
+  // 掀纸路径的阈值与抓取点无关，按下之前就能定。
+  const flipThreshold = Math.max(64, db.settings.cardHeight * FLIP_RATIO);
+  // 折叠路径换算成「手指要走的距离」得知道抓取点在哪，按下时才算 —— 见 pointerdown。
+  const depthLimit = Math.hypot(CW, CH) * FOLD_DEPTH_RATIO;
+  let foldThreshold = 0;
 
-  // 纸背色 = 卡片底色压暗 7%。硬编码一个颜色的话，换卡片配色时纸背会对不上。
-  const paperBack = (() => {
+  // 卡片底色按比例压暗。硬编码颜色的话，换卡片配色时纸背会对不上。
+  const tone = (k: number, fallback: string) => {
     const bg = getComputedStyle(card).backgroundColor;
     const m = bg.match(/(\d+)\D+(\d+)\D+(\d+)/);
-    if (!m) return 'rgb(238, 227, 194)';
-    const k = 0.93;
+    if (!m) return fallback;
     return `rgb(${Math.round(Number(m[1]) * k)}, ${Math.round(Number(m[2]) * k)}, ${Math.round(
       Number(m[3]) * k
     )})`;
-  })();
+  };
+  // 纸背：压暗 7%，折过去那一面
+  const paperBack = tone(0.93, 'rgb(238, 227, 194)');
 
   let bitmap: HTMLCanvasElement | null = null;
   let capturing = false;
@@ -441,7 +462,9 @@ function attachGesture(
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // ③ 折痕线：沿折痕方向画一条远超卡片的长线，两端交给卡片矩形裁掉
+    // ③ 折走那一侧留空 —— 纸折走了，露出的就是下面那张，这是它对的地方。
+
+    // ④ 折痕线：沿折痕方向画一条远超卡片的长线，两端交给卡片矩形裁掉
     const big = 4000;
     ctx.save();
     ctx.beginPath();
@@ -604,9 +627,21 @@ function attachGesture(
         // 如果让折痕垂直于拖动方向，横着拖时折痕会竖起来横扫整张卡片，一拖就折掉半边。
         const dx0 = CX + CW / 2 - gx;
         const dy0 = CY + CH / 2 - gy;
-        const dl = Math.hypot(dx0, dy0) || 1;
-        nx = dx0 / dl;
-        ny = dy0 / dl;
+        const dl = Math.hypot(dx0, dy0);
+        if (dl < 1) {
+          // 正好按在卡片几何中心：法线退化成零向量，之后投影恒为 0，
+          // 折角一动都不动、也永远撕不掉。给一个「朝上」的默认方向 ——
+          // 折纸手势本来就是从下往上掀的。
+          nx = 0;
+          ny = -1;
+        } else {
+          nx = dx0 / dl;
+          ny = dy0 / dl;
+        }
+        // 阈值换回「手指要推进多少」：抓取点本身离中心 dl，折痕推到离中心
+        // depthLimit 时就是推进了 dl - depthLimit。下限 30px 是给「抓得极靠近
+        // 中心」兜底 —— 那时 dl 很小，不兜住一碰就撕。
+        foldThreshold = Math.max(30, dl - depthLimit);
         curDist = 0;
         ctx?.clearRect(0, 0, W, H);
         if (!bitmap) void capture(true);
@@ -635,20 +670,16 @@ function attachGesture(
       cx = e.clientX - r.left;
       cy = e.clientY - r.top;
 
-      // 指针跑到窗口外面去了：clientX/clientY 会突然变成负数或超出视口，
-      // 折角距离被算成 0 → paint() 先 clearRect 再因为 dist 太小早退 →
-      // 画布空了，而真卡片这时是隐藏的 → 屏幕上什么都不剩，看着像便签凭空消失。
-      // 这种时候直接结束手势，让卡片弹回原位。
-      if (
-        e.clientX < 0 ||
-        e.clientY < 0 ||
-        e.clientX > window.innerWidth ||
-        e.clientY > window.innerHeight
-      ) {
-        finish(true);
-        return;
-      }
-
+      // 指针拖到窗口外面：这里**不能**当作取消。
+      //
+      // 便签窗只比卡片大 22px（左右）、56px（上下），而摘掉要求手指走九十来像素，
+      // 往内侧折的时候手指几乎必然会越过窗口边界。早先在这里 finish(true)，
+      // 结果就是「拖得挺好的，一出边就弹回来」—— 越用力拖越摘不掉，完全是反的。
+      //
+      // 越界本身也不需要特别处理：clientX/clientY 变负只让投影更大，折痕继续往外推，
+      // paint() 会把折过去的部分裁在画布内，画面上就是一张折得更深的纸。
+      // 真的松手收不到 pointerup，靠 window blur 和下一次 pointerdown 兜底。
+      //
       // 只取「朝卡片中心」那个方向的位移分量。反方向拖（往外拉）投影为负，
       // max(0) 兜住，等于完全不折 —— 折角只会朝卡片内部长大。
       const proj = (cx - gx) * nx + (cy - gy) * ny;
@@ -717,14 +748,16 @@ function attachGesture(
       return;
     }
 
-    // 摘除只有两条路：折角撕掉（foldThis 看折角距离）、向上拖翻页（看 -dy）。
+    // 摘除只有两条路：折角撕掉（foldThis 看折痕推进了多少）、向上拖翻页（看 -dy）。
     // 早先还有一条「横向拖过 160px 也算摘掉」，已移除 —— 见 docs/变更与决策记录.md 的 CR-002。
-    const shouldFlip = !cancelled && (foldThis ? curDist > threshold : -dy > threshold);
+    const shouldFlip = !cancelled && (foldThis ? curDist > foldThreshold : -dy > flipThreshold);
 
     if (shouldFlip) {
       flipping = true;
       if (foldThis) {
-        animateFold(760, 220, () => {
+        // 拖出窗口之后 curDist 可能已经远超 760。固定往 760 走会让动画倒退，
+        // 看着像纸自己弹回来 —— 取当前值和 760 的较大者，保证始终是往外折。
+        animateFold(Math.max(760, curDist + 40), 220, () => {
           flipping = false;
           interacting = false;
           void window.api.completeNote(note.id);
@@ -843,12 +876,16 @@ function wire() {
   });
   window.addEventListener('blur', () => activeFinish?.(true));
 
-  // 鼠标拖出窗口：窗口本身没失焦，所以 blur 不会触发，pointermove 也会停。
-  // 这时候正折着角的卡片会停在半途 —— 画布是空的（坐标越界被当成折角 0）、
-  // 真卡片又是隐藏的，屏幕上就什么都不剩。relatedTarget 为空表示鼠标真的离开了窗口。
-  window.addEventListener('mouseout', (e) => {
-    if (!e.relatedTarget) activeFinish?.(true);
-  });
+  // 这里曾经挂过一个 mouseout（relatedTarget 为空 = 鼠标离开窗口 → 取消手势）。
+  // 删掉了：便签窗只比卡片大一圈，往外折必然出窗，那个监听器把「正常拖动」
+  // 判成了「用户放弃」，是这个手势最坏的手感来源。
+  // 窗口真失焦走上面的 blur。
+
+  // 拖到窗口外再松手时，pointerup 偶尔收不到（capture 掉了）。那会让 interacting
+  // 一直挂着、界面从此不再刷新。在 window 上补一道 —— finish 自己有 active 判定，
+  // 卡片那一份照常先跑，这一份重复调用直接返回。
+  window.addEventListener('pointerup', () => activeFinish?.(false));
+  window.addEventListener('pointercancel', () => activeFinish?.(true));
 }
 
 async function boot() {
