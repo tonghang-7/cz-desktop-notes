@@ -124,12 +124,29 @@ function render() {
 function wire() {
   btnClose.addEventListener('click', () => window.close());
 
-  // input 只做即时预览，不写盘 —— 拖着滑杆会连着触发几十次
+  /*
+   * 拖动中：本窗改自己的 CSS 变量（缩略图立刻跟手），并把值节流推给便签窗。
+   * 便签是另一个渲染进程，这里改变量够不着它，只能走 IPC。
+   *
+   * 不节流的话，拖一次滑杆就是几十次 IPC 往返。80ms 的节奏人眼已经看不出延迟，
+   * 而且第一次立刻发（leading edge），手感上不会"拖了才动"。
+   */
+  let veilPending = Number(veil.value);
+  let veilTimer = 0;
   veil.addEventListener('input', () => {
     veilOut.textContent = `${veil.value}%`;
     document.documentElement.style.setProperty('--skin-photo-veil', `${veil.value}%`);
+    veilPending = Number(veil.value);
+    if (veilTimer) return;
+    void window.api.previewSkinVeil(veilPending);
+    veilTimer = window.setTimeout(() => {
+      veilTimer = 0;
+      // 抬手前最后一段没送到的话，补一发
+      if (veilPending !== Number(veil.value)) return;
+      void window.api.previewSkinVeil(veilPending);
+    }, 80);
   });
-  // change 才是松手，这时才存
+  // change 才是松手，这时才存盘
   veil.addEventListener('change', () => {
     void window.api.updateSettings({ skinVeil: Number(veil.value) });
   });

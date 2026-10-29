@@ -239,6 +239,9 @@ export function createSkinWindow(): BrowserWindow {
   skinWin.once('ready-to-show', () => skinWin?.show());
   skinWin.on('closed', () => {
     skinWin = null;
+    // 拖到一半直接关窗：便签窗还停在那个没存过的预览值上，复位回已保存的。
+    // 放在主进程而不是渲染进程的 beforeunload —— 那边窗口正在销毁，IPC 可能被丢掉。
+    previewVeil(getDb().settings.skinVeil);
   });
   skinWin.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -252,6 +255,18 @@ export function showSkinWindow() {
   const win = createSkinWindow();
   if (!win.isVisible()) win.show();
   win.focus();
+}
+
+/**
+ * 蒙版浓度拖动时的实时预览：只推给便签窗，不写盘、不广播。
+ *
+ * 皮肤窗和便签窗是两个渲染进程，改自己 DOM 上的 CSS 变量够不着对方，
+ * 所以单独开一条通道。调用方必须节流 —— 一次拖动就是几十次往返。
+ */
+export function previewVeil(veil: number) {
+  if (notepad && !notepad.isDestroyed()) {
+    notepad.webContents.send('skin:preview-veil', veil);
+  }
 }
 
 export function broadcastDb() {

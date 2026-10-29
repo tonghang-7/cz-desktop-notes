@@ -315,6 +315,9 @@ function registerIpc() {
 
   ipcMain.handle('ui:open-manager', (_e, fromCard?: boolean) => W.showManager(!!fromCard));
   ipcMain.handle('ui:open-skin', () => W.showSkinWindow());
+  ipcMain.handle('skin:preview-veil', (_e, veil: number) => {
+    if (typeof veil === 'number' && Number.isFinite(veil)) W.previewVeil(veil);
+  });
   ipcMain.handle('ui:hide-notepad', () => W.hideNotepad());
   ipcMain.handle('ui:show-notepad', () => W.showNotepad());
   ipcMain.handle('ui:hotkey', () => getActiveHotkey());

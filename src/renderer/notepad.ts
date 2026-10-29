@@ -921,6 +921,12 @@ async function boot() {
   wire();
   startDueTicker();
 
+  // 皮肤窗拖滑杆时的实时预览。只改 CSS 变量，不碰 db ——
+  // 松手那边会走 updateSettings，广播回来正好是同一个值，不会跳。
+  window.api.onSkinPreview((veil) => {
+    document.documentElement.style.setProperty('--skin-photo-veil', `${veil}%`);
+  });
+
   window.api.onDbChanged((next) => {
     db = next;
     applyVars();

@@ -36,6 +36,13 @@ const api = {
   saveSkinImage: (dataUrl: string): Promise<{ ok: boolean; name?: string; reason?: string }> =>
     ipcRenderer.invoke('skin:save', dataUrl),
   clearSkinImage: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('skin:clear'),
+  /** 拖蒙版滑杆时的实时预览，只到便签窗，不写盘。调用方负责节流。 */
+  previewSkinVeil: (veil: number): Promise<void> => ipcRenderer.invoke('skin:preview-veil', veil),
+  onSkinPreview: (cb: (veil: number) => void) => {
+    const listener = (_e: unknown, veil: number) => cb(veil);
+    ipcRenderer.on('skin:preview-veil', listener);
+    return () => ipcRenderer.off('skin:preview-veil', listener);
+  },
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('ui:notify', title, body),
   /** 当前版本号，比如 0.5.0 */
