@@ -11,7 +11,7 @@ Most note apps want you to **collect**. This one wants you to **finish**.
 A single always-on-top window that shows one note at a time. Grab a corner, fold it inward — the paper folds under your cursor, and past a certain crease it tears off and the next note comes up. There is no list to scroll and no stack to browse: you can only deal with the one in front of you. (The mouse wheel scrolls a long note's own text — nothing else.)
 
 - **Nothing piles up.** A dismissed note goes to an archive, not back onto the stack. Clear them all and the window says *no notes yet* — that's the goal, not a failure.
-- **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and past 42% of the card diagonal it tears off; before that it springs back flat. The upper corners are inert: pulling there does nothing at all, so the note can't be folded the wrong way or torn off by accident.
+- **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and once the crease comes within about a fifth of the card diagonal of the centre it tears off; before that it springs back flat. The upper corners are inert: pulling there does nothing at all, so the note can't be folded the wrong way or torn off by accident.
 - **A note can hold a picture.** `Ctrl + V` pastes whatever is on your clipboard onto the note in front — a screenshot, a chart, a receipt. Click the image to open it full size in your own viewer.
 - **A note can carry a deadline.** Set one in the editor and a thin line runs along the bottom of the card, shrinking as the time drains, burning from ink to orange. Past zero the paper yellows and gives one small shake.
 - **Capture without switching windows.** `Ctrl + Alt + V` turns whatever is on your clipboard — an image or plain text — into a fresh note on top of the stack, window included.
@@ -84,7 +84,7 @@ npm run dist
 | `Ctrl + Alt + Space` | 呼出 / 收起便签窗 |
 | 捏住便签任意位置，朝卡片内部拖 | 纸从抓取点那一角折起，折痕垂直于「抓取点 → 卡片中心」 |
 | 折角没到阈值就松手 | 回弹，不摘 |
-| 折过阈值（卡片对角线的 42%）松手 | 摘掉，下一张顶上来 |
+| 折过阈值（折痕推到距卡片中心约 0.2 倍对角线处）松手 | 摘掉，下一张顶上来 |
 | 轻点便签 | 打开管理界面 |
 | `Ctrl + V` | 把剪贴板里的图片贴到栈顶那张（系统截图 `Win + Shift + S` 之后直接粘就行） |
 | `Ctrl + Alt + V` | 剪贴板里的图或文字直接变成一张新便签，排在最前面，窗口自动弹出 |
