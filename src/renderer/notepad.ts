@@ -92,6 +92,42 @@ function applySkin() {
   else delete document.documentElement.dataset.skin;
 }
 
+/**
+ * 当前注入的背景图文件名。db 变化很频繁（打字都会广播），没变就别重读那几百 KB。
+ */
+let skinPhotoName = '';
+
+/**
+ * 把自定义背景图注入成 CSS 变量。
+ *
+ * 必须是 data URL：file:// 或自定义协议会被 Chromium 当成跨源，canvas 一读像素就 taint，
+ * drawElementImage 抓图时会**直接跳过那张图** —— 折起来背景凭空消失。
+ */
+async function applySkinPhoto() {
+  const name = db.settings.skinImage ?? '';
+  if (name === skinPhotoName) return;
+  skinPhotoName = name;
+
+  const root = document.documentElement;
+  const clear = () => {
+    root.style.removeProperty('--skin-photo');
+    delete root.dataset.skinPhoto;
+  };
+
+  if (!name) {
+    clear();
+    return;
+  }
+  const url = await window.api.readImage(name);
+  if (!url) {
+    // 文件被人手动删了：退回不含背景的样子，不要留个裂图
+    clear();
+    return;
+  }
+  root.style.setProperty('--skin-photo', `url("${url}")`);
+  root.dataset.skinPhoto = '1';
+}
+
 function applyVars() {
   const root = document.documentElement;
   root.style.setProperty('--card-w', `${db.settings.cardWidth}px`);
@@ -923,6 +959,7 @@ function wire() {
 async function boot() {
   db = await window.api.getDb();
   applySkin();
+  await applySkinPhoto();
   applyVars();
   // 图片要先落进内存再 render —— buildCard 是同步的，拿不到就是在画一张没有图的纸
   await preloadImages();
@@ -935,6 +972,7 @@ async function boot() {
     applySkin();
     applyVars();
     void (async () => {
+      await applySkinPhoto();
       await preloadImages();
       render();
     })();

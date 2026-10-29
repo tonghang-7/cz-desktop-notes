@@ -87,6 +87,8 @@ function normalizeSettings(raw: unknown): Settings {
     autoLaunch: typeof r.autoLaunch === 'boolean' ? r.autoLaunch : DEFAULT_SETTINGS.autoLaunch,
     // 手改过 data.json 写了不存在的皮肤也不该崩：匹配不到 CSS 规则就是素纸
     skin: isSkin(r.skin) ? r.skin : DEFAULT_SETTINGS.skin,
+    // 只认文件名，不认路径：数据目录可以换，存路径等于把图和位置焊死
+    skinImage: typeof r.skinImage === 'string' && r.skinImage ? r.skinImage : null,
   };
 }
 

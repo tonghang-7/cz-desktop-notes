@@ -24,6 +24,14 @@
   /* 叠在纸色之上的纹理 / 格线 / 图片。纸色仍然是 --paper，两者是底 + 面两层 */
   --skin-texture: none;
   --skin-texture-size: auto;
+  /*
+   * 自定义背景图（运行时注入 url(data:...)）。非空时 --skin-bg 整层换成它 ——
+   * 选图就是「背景就是这张图」，不在上面再叠纹理。
+   */
+  --skin-photo: none;
+  /* 背景层的唯一出口。皮肤只改 --skin-texture，不直接碰 background-image。 */
+  --skin-bg: var(--skin-texture);
+  --skin-bg-size: var(--skin-texture-size);
   /* 折过去那一面压多暗。深色皮肤要另一套值，否则压暗看不出来 */
   --back-tone: 0.93;
   /* 折痕线、纸背透出的正面字痕。深色皮肤上这两个必须换 */
@@ -35,6 +43,12 @@
  * 一个皮肤 = 一组变量覆盖。纸色（--paper）不在这里，它仍然是每张便签自己的选择。
  * 要加新皮肤，照抄下面任一块改数值即可，渲染代码不用动。
  */
+
+/* 有自定义图时，背景层只留那张图 */
+[data-skin-photo] {
+  --skin-bg: var(--skin-photo);
+  --skin-bg-size: cover;
+}
 
 /* 方格纸：两组格线交叉。0.13 的透明度在五种纸色上都压得住，不抢字 */
 [data-skin='grid'] {
@@ -181,8 +195,9 @@ body.np {
   height: var(--card-h);
   border-radius: var(--skin-radius);
   background-color: var(--paper, #f7f2e3);
-  background-image: var(--skin-texture);
-  background-size: var(--skin-texture-size);
+  background-image: var(--skin-bg);
+  background-size: var(--skin-bg-size);
+  background-position: center;
   z-index: 8;
   padding: var(--skin-pad-top) var(--skin-pad-x) var(--skin-pad-bottom);
   overflow: hidden;
@@ -205,8 +220,9 @@ body.np {
   height: var(--card-h);
   border-radius: var(--skin-radius);
   background-color: var(--paper);
-  background-image: var(--skin-texture);
-  background-size: var(--skin-texture-size);
+  background-image: var(--skin-bg);
+  background-size: var(--skin-bg-size);
+  background-position: center;
   box-shadow: var(--skin-shadow);
   transform-origin: 50% 0%;
   transform-style: preserve-3d;
@@ -1094,14 +1110,26 @@ body.mg {
   border: 1px solid rgba(60, 53, 39, 0.2);
   border-radius: 3px;
   background-color: #fdf0c7;
-  background-image: var(--skin-texture);
-  background-size: var(--skin-texture-size);
+  /* 方块自己定义 --skin-bg，不然会继承 html 上「当前皮肤」的那一层 */
+  --skin-bg: var(--skin-texture);
+  --skin-bg-size: var(--skin-texture-size);
+  background-image: var(--skin-bg);
+  background-size: var(--skin-bg-size);
+  background-position: center;
   cursor: pointer;
 }
 
 .mg__skin[data-skin=''] {
   --skin-texture: none;
   --skin-texture-size: auto;
+  /*
+   * 自定义背景图（运行时注入 url(data:...)）。非空时 --skin-bg 整层换成它 ——
+   * 选图就是「背景就是这张图」，不在上面再叠纹理。
+   */
+  --skin-photo: none;
+  /* 背景层的唯一出口。皮肤只改 --skin-texture，不直接碰 background-image。 */
+  --skin-bg: var(--skin-texture);
+  --skin-bg-size: var(--skin-texture-size);
 }
 
 .mg__skin.is-on {

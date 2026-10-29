@@ -31,6 +31,7 @@ const sizeWOut = document.getElementById('size-w-out') as HTMLOutputElement;
 const sizeHOut = document.getElementById('size-h-out') as HTMLOutputElement;
 const hint = document.getElementById('hint') as HTMLElement;
 const cfgSkins = document.getElementById('cfg-skins') as HTMLElement;
+const btnSkinClear = document.getElementById('btn-skin-clear') as HTMLButtonElement;
 const cfgAutoLaunch = document.getElementById('cfg-autolaunch') as HTMLInputElement;
 const cfgDataDir = document.getElementById('cfg-datadir') as HTMLElement;
 const btnDataDir = document.getElementById('btn-datadir') as HTMLButtonElement;
@@ -446,24 +447,125 @@ function applySkin() {
   else delete document.documentElement.dataset.skin;
 }
 
+/** 与便签窗同一套：背景图必须是 data URL，否则 canvas taint、折起来背景消失。 */
+let skinPhotoName = '';
+
+async function applySkinPhoto() {
+  const name = db.settings.skinImage ?? '';
+  if (name === skinPhotoName) return;
+  skinPhotoName = name;
+
+  const root = document.documentElement;
+  const clear = () => {
+    root.style.removeProperty('--skin-photo');
+    delete root.dataset.skinPhoto;
+  };
+  if (!name) {
+    clear();
+    return;
+  }
+  const url = await window.api.readImage(name);
+  if (!url) {
+    clear();
+    return;
+  }
+  root.style.setProperty('--skin-photo', `url("${url}")`);
+  root.dataset.skinPhoto = '1';
+}
+
+/**
+ * 把图缩到指定宽度并转 JPEG。
+ *
+ * 原图可能是 4000×3000 —— 解码后 48MB 的位图，一张背景不该吃这么多。压完约 300KB。
+ * 入参必须是 data URL：换成 file:// 会让 canvas taint，toDataURL 直接抛 SecurityError。
+ */
+function shrinkToDataUrl(src: string, maxWidth: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxWidth / img.naturalWidth);
+        const w = Math.max(1, Math.round(img.naturalWidth * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+        const cv = document.createElement('canvas');
+        cv.width = w;
+        cv.height = h;
+        const ctx = cv.getContext('2d');
+        if (!ctx) throw new Error('拿不到 2d 上下文');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL('image/jpeg', 0.82));
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    };
+    img.onerror = () => reject(new Error('这张图解不开'));
+    img.src = src;
+  });
+}
+
+async function pickSkinImage() {
+  cfgTip.textContent = '选一张图片…';
+  const picked = await window.api.pickSkinImage();
+  if (!picked) {
+    cfgTip.textContent = '';
+    return;
+  }
+  if ('error' in picked) {
+    cfgTip.textContent = picked.error;
+    return;
+  }
+
+  cfgTip.textContent = '压缩中…';
+  try {
+    const small = await shrinkToDataUrl(picked.dataUrl, 1600);
+    const saved = await window.api.saveSkinImage(small);
+    cfgTip.textContent = saved.ok
+      ? `背景已换（${Math.round(small.length / 1024)} KB）`
+      : (saved.reason ?? '存不下');
+  } catch (err) {
+    cfgTip.textContent = err instanceof Error ? err.message : '这张图处理不了';
+  }
+}
+
+/**
+ * 点内置皮肤 = 背景换成那个皮肤。
+ * 图还在的话它会继续盖在上面，用户会以为点了没反应，所以顺手把图清掉。
+ */
+async function chooseSkin(id: string) {
+  if (db.settings.skinImage) await window.api.clearSkinImage();
+  await window.api.updateSettings({ skin: id });
+}
+
 /**
  * 皮肤选择器。每个方块自己带 data-skin，靠同一套 CSS 变量画出该皮肤的纹理——
  * 不用另写一套缩略图样式，加新皮肤时这里也不用改。
+ * 有自定义图时它是最后那个方块，内置的全部不高亮：背景只有一个来源。
  */
 function renderSkins() {
   cfgSkins.innerHTML = '';
+  const hasPhoto = !!db.settings.skinImage;
+
   for (const skin of SKINS) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'mg__skin';
     btn.title = skin.label;
     btn.dataset.skin = skin.id;
-    if (skin.id === (db.settings.skin ?? '')) btn.classList.add('is-on');
-    btn.addEventListener('click', () => {
-      void window.api.updateSettings({ skin: skin.id });
-    });
+    if (!hasPhoto && skin.id === (db.settings.skin ?? '')) btn.classList.add('is-on');
+    btn.addEventListener('click', () => void chooseSkin(skin.id));
     cfgSkins.appendChild(btn);
   }
+
+  const photo = document.createElement('button');
+  photo.type = 'button';
+  photo.className = 'mg__skin';
+  photo.dataset.skin = 'photo';
+  photo.title = hasPhoto ? '换一张背景图' : '用自己的图片当背景';
+  if (hasPhoto) photo.classList.add('is-on', 'has-photo');
+  photo.addEventListener('click', () => void pickSkinImage());
+  cfgSkins.appendChild(photo);
+
+  btnSkinClear.hidden = !hasPhoto;
 }
 
 function syncSize() {
@@ -477,6 +579,7 @@ function syncSize() {
 
 function render() {
   applySkin();
+  void applySkinPhoto();
   renderList();
   renderEditor();
   renderArchive();
@@ -806,6 +909,13 @@ function wire() {
 
   btnRelaunch.addEventListener('click', () => void window.api.relaunchApp());
 
+  btnSkinClear.addEventListener('click', () => {
+    void (async () => {
+      await window.api.clearSkinImage();
+      cfgTip.textContent = '已去掉背景图';
+    })();
+  });
+
   document.addEventListener('keydown', (e) => {
     if (recordingHotkey) {
       e.preventDefault();
@@ -896,6 +1006,7 @@ function wire() {
 async function boot() {
   db = await window.api.getDb();
   selectedId = db.notes[0]?.id ?? null;
+  await applySkinPhoto();
   render();
   wire();
 

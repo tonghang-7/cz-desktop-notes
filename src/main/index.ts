@@ -23,7 +23,20 @@ app.setAppUserModelId('dev.cangze.czdesktopnotes');
 function mimeOf(name: string) {
   if (/\.jpe?g$/i.test(name)) return 'image/jpeg';
   if (/\.webp$/i.test(name)) return 'image/webp';
+  if (/\.bmp$/i.test(name)) return 'image/bmp';
   return 'image/png';
+}
+
+/**
+ * 删掉一张背景图。文件名来自 settings（可以被手改 data.json 写坏），
+ * 所以必须 basename —— 否则一个 `../data.json` 就把数据库删了。
+ */
+function dropSkinFile(name: string) {
+  try {
+    fs.unlinkSync(path.join(store.attachmentsDir(), path.basename(name)));
+  } catch {
+    // 文件本来就不在：不是错误
+  }
 }
 
 /** 捕获热键。选 V 是因为带「粘贴 / 捕获」的语义，也不和呼出热键的候选撞车。 */
@@ -180,6 +193,60 @@ function registerIpc() {
     } catch {
       return null;
     }
+  });
+
+  // ── 皮肤背景图 ──
+
+  /**
+   * 选一张图当背景。只把原图读成 data URL 交回去，压缩在渲染进程做（那边才有 canvas）。
+   * 主进程不引图像处理依赖，保持这一层只干 I/O。
+   */
+  ipcMain.handle('skin:pick', async () => {
+    const res = await dialog.showOpenDialog({
+      title: '选一张图片当便签背景',
+      properties: ['openFile'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+    });
+    const file = res.filePaths[0];
+    if (res.canceled || !file) return null;
+    try {
+      // base64 之后要整个过一遍 IPC，再大就是几秒的卡顿
+      if (fs.statSync(file).size > 12 * 1024 * 1024) {
+        return { error: '图片太大，上限 12MB' };
+      }
+      const buf = fs.readFileSync(file);
+      return { dataUrl: `data:${mimeOf(file)};base64,${buf.toString('base64')}` };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  /** 存渲染进程压好的图，顺手删掉上一张 —— 一张图只归一个皮肤，留着就是纯泄漏。 */
+  ipcMain.handle('skin:save', (_e, dataUrl: string) => {
+    const m = /^data:image\/(png|jpeg|webp|bmp);base64,(.+)$/.exec(String(dataUrl ?? ''));
+    if (!m) return { ok: false, reason: '图片格式认不出来' };
+    const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
+    const name = `skin-${randomUUID()}.${ext}`;
+    const old = store.getDb().settings.skinImage;
+    try {
+      const dir = store.attachmentsDir();
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, name), Buffer.from(m[2], 'base64'));
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+    store.updateSettings({ skinImage: name });
+    if (old && old !== name) dropSkinFile(old);
+    W.broadcastDb();
+    return { ok: true, name };
+  });
+
+  ipcMain.handle('skin:clear', () => {
+    const old = store.getDb().settings.skinImage;
+    store.updateSettings({ skinImage: null });
+    if (old) dropSkinFile(old);
+    W.broadcastDb();
+    return { ok: true };
   });
 
   ipcMain.handle('ui:notify', (_e, title: string, body: string) => {

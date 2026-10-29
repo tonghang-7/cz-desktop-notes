@@ -29,6 +29,13 @@ const api = {
   /** 用系统看图程序打开（返回错误信息，成功时是 null） */
   openImage: (fileName: string): Promise<string | null> =>
     ipcRenderer.invoke('image:open', fileName),
+  /** 选一张图当皮肤背景，返回原图的 data URL（压缩由渲染进程做） */
+  pickSkinImage: (): Promise<{ dataUrl: string } | { error: string } | null> =>
+    ipcRenderer.invoke('skin:pick'),
+  /** 存压好的背景图，返回文件名 */
+  saveSkinImage: (dataUrl: string): Promise<{ ok: boolean; name?: string; reason?: string }> =>
+    ipcRenderer.invoke('skin:save', dataUrl),
+  clearSkinImage: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('skin:clear'),
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('ui:notify', title, body),
   /** 当前版本号，比如 0.5.0 */

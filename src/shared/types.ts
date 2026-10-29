@@ -32,6 +32,12 @@ export interface Settings {
    * 两者正交 —— 同一个方格纸皮肤配琥珀是黄色方格纸，配浅蓝就是蓝色方格纸。
    */
   skin: string;
+  /**
+   * 自定义背景图（attachments 里的文件名，不是路径）。
+   * 非空时背景层**只有这张图**：内置纹理整层让位，不叠在上面。
+   * 字体、圆角、纸背压暗这些仍然跟着 skin 走 —— 图是背景，不是皮肤。
+   */
+  skinImage: string | null;
 }
 
 /**
@@ -71,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   windowY: null,
   autoLaunch: false,
   skin: '',
+  skinImage: null,
 };
 
 export const HOTKEY_CANDIDATES = [
