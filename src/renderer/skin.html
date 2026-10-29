@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <title>皮肤管理</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="sk">
+    <header class="sk__head">
+      <div class="sk__intro">
+        <h1>皮肤</h1>
+        <p>换的是纸的材质：背景、字体、圆角、纸背的深浅。每张便签自己的颜色不变。</p>
+      </div>
+      <button class="sk__ghost" id="btn-close" type="button">关闭</button>
+    </header>
+
+    <section class="sk__grid" id="grid"></section>
+
+    <section class="sk__veilbox" id="veil-wrap" hidden>
+      <label class="sk__veil">
+        <span>照片蒙版</span>
+        <input type="range" id="veil" min="0" max="100" step="5" />
+        <output id="veil-out">55%</output>
+      </label>
+      <p class="sk__tip">照片上垫的纸色浓度。越浓字越清楚，照片越淡。</p>
+    </section>
+
+    <p class="sk__tip" id="tip"></p>
+
+    <script src="./skin.js"></script>
+  </body>
+</html>

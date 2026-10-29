@@ -74,6 +74,7 @@ const api = {
     ipcRenderer.on('manager:focus-editor', listener);
     return () => ipcRenderer.off('manager:focus-editor', listener);
   },
+  openSkinWindow: (): Promise<void> => ipcRenderer.invoke('ui:open-skin'),
   hideNotepad: (): Promise<void> => ipcRenderer.invoke('ui:hide-notepad'),
   showNotepad: (): Promise<void> => ipcRenderer.invoke('ui:show-notepad'),
   getHotkey: (): Promise<string> => ipcRenderer.invoke('ui:hotkey'),

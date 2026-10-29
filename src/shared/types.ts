@@ -38,6 +38,11 @@ export interface Settings {
    * 字体、圆角、纸背压暗这些仍然跟着 skin 走 —— 图是背景，不是皮肤。
    */
   skinImage: string | null;
+  /**
+   * 自定义背景图上那层纸色的浓度（0-100，默认 55）。
+   * 照片越深，这个数要越大，否则黑字压不住。
+   */
+  skinVeil: number;
 }
 
 /**
@@ -78,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoLaunch: false,
   skin: '',
   skinImage: null,
+  skinVeil: 55,
 };
 
 export const HOTKEY_CANDIDATES = [

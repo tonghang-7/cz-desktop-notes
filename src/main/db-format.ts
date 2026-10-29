@@ -72,6 +72,11 @@ function normalizeNote(raw: unknown): Note | null {
   };
 }
 
+function clampVeil(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_SETTINGS.skinVeil;
+  return Math.min(100, Math.max(0, Math.round(v)));
+}
+
 function normalizeSettings(raw: unknown): Settings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const size = clampCardSize(
@@ -89,6 +94,8 @@ function normalizeSettings(raw: unknown): Settings {
     skin: isSkin(r.skin) ? r.skin : DEFAULT_SETTINGS.skin,
     // 只认文件名，不认路径：数据目录可以换，存路径等于把图和位置焊死
     skinImage: typeof r.skinImage === 'string' && r.skinImage ? r.skinImage : null,
+    // 手改 json 写成 300 或 "abc" 都不该让背景变全黑或全透明
+    skinVeil: clampVeil(r.skinVeil),
   };
 }
 

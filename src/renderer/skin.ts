@@ -1,0 +1,150 @@
+/**
+ * 皮肤管理窗。
+ *
+ * 独立的 BrowserWindow，从管理窗设置里的「皮肤管理」进来，关掉即销毁 ——
+ * 它不像便签那样常驻，多一个渲染进程的成本只在开着的时候付。
+ *
+ * 这个窗只干一件事：把皮肤挑出来。真正的落地在 skin-runtime 里，
+ * 三个渲染进程共用同一份，免得各写一遍漂移。
+ */
+import { SKINS, type NoteDb } from '../shared/types';
+import { applyAllSkin, shrinkToDataUrl } from './skin-runtime';
+
+const grid = document.getElementById('grid') as HTMLElement;
+const veilWrap = document.getElementById('veil-wrap') as HTMLElement;
+const veil = document.getElementById('veil') as HTMLInputElement;
+const veilOut = document.getElementById('veil-out') as HTMLOutputElement;
+const btnClose = document.getElementById('btn-close') as HTMLButtonElement;
+const tip = document.getElementById('tip') as HTMLElement;
+
+let db: NoteDb = {
+  version: 1,
+  settings: { hotkey: '', cardWidth: 320, cardHeight: 250, windowX: null, windowY: null, autoLaunch: false, skin: '', skinImage: null, skinVeil: 55 },
+  notes: [],
+  archive: [],
+};
+
+/** 预览纸上铺两行假文字：光给一块色块看不出字距和行距。 */
+const SAMPLE = ['这张便签', '写点什么'];
+
+function buildPaper(dataSkin: string): HTMLElement {
+  const paper = document.createElement('span');
+  paper.className = 'sk-card__paper';
+  // 带上 data-skin，这张小纸就会匹配到那个皮肤的变量 —— 预览和真实卡片同一套 CSS
+  paper.dataset.skin = dataSkin;
+  for (const line of SAMPLE) {
+    const p = document.createElement('span');
+    p.className = 'sk-card__line';
+    p.textContent = line;
+    paper.appendChild(p);
+  }
+  return paper;
+}
+
+function buildCard(dataSkin: string, label: string, on: boolean, extraClass?: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'sk-card';
+  if (on) btn.classList.add('is-on');
+  btn.append(buildPaper(dataSkin));
+
+  const name = document.createElement('span');
+  name.className = 'sk-card__name';
+  name.textContent = label;
+  btn.append(name);
+  if (extraClass) btn.classList.add(extraClass);
+  return btn;
+}
+
+/**
+ * 点内置皮肤 = 背景换成那个皮肤。
+ * 图还在的话它会继续盖在上面，用户会以为点了没反应，所以顺手把图清掉。
+ */
+async function chooseSkin(id: string) {
+  tip.textContent = '';
+  if (db.settings.skinImage) await window.api.clearSkinImage();
+  await window.api.updateSettings({ skin: id });
+}
+
+async function pickPhoto() {
+  tip.textContent = '选一张图片…';
+  const picked = await window.api.pickSkinImage();
+  if (!picked) {
+    tip.textContent = '';
+    return;
+  }
+  if ('error' in picked) {
+    tip.textContent = picked.error;
+    return;
+  }
+
+  tip.textContent = '压缩中…';
+  try {
+    const small = await shrinkToDataUrl(picked.dataUrl, 1600);
+    const saved = await window.api.saveSkinImage(small);
+    tip.textContent = saved.ok
+      ? `背景已换（${Math.round(small.length / 1024)} KB）`
+      : (saved.reason ?? '存不下');
+  } catch (err) {
+    tip.textContent = err instanceof Error ? err.message : '这张图处理不了';
+  }
+}
+
+function render() {
+  void applyAllSkin(db);
+
+  grid.innerHTML = '';
+
+  for (const skin of SKINS) {
+    const on = !db.settings.skinImage && skin.id === (db.settings.skin ?? '');
+    const btn = buildCard(skin.id, skin.label, on);
+    btn.addEventListener('click', () => void chooseSkin(skin.id));
+    grid.appendChild(btn);
+  }
+
+  const hasPhoto = !!db.settings.skinImage;
+  const photo = buildCard(
+    'photo',
+    hasPhoto ? '换一张图片' : '用自己的图片',
+    hasPhoto,
+    hasPhoto ? 'has-photo' : 'is-empty'
+  );
+  photo.addEventListener('click', () => void pickPhoto());
+  grid.appendChild(photo);
+
+  veilWrap.hidden = !hasPhoto;
+  // 正在拖滑杆的时候别回填：一次 db 广播回来会把手指按住的值冲掉
+  if (document.activeElement !== veil) {
+    const v = db.settings.skinVeil ?? 55;
+    veil.value = String(v);
+    veilOut.textContent = `${v}%`;
+  }
+}
+
+function wire() {
+  btnClose.addEventListener('click', () => window.close());
+
+  // input 只做即时预览，不写盘 —— 拖着滑杆会连着触发几十次
+  veil.addEventListener('input', () => {
+    veilOut.textContent = `${veil.value}%`;
+    document.documentElement.style.setProperty('--skin-photo-veil', `${veil.value}%`);
+  });
+  // change 才是松手，这时才存
+  veil.addEventListener('change', () => {
+    void window.api.updateSettings({ skinVeil: Number(veil.value) });
+  });
+}
+
+async function boot() {
+  db = await window.api.getDb();
+  await applyAllSkin(db);
+  render();
+  wire();
+
+  window.api.onDbChanged((next) => {
+    db = next;
+    render();
+  });
+}
+
+void boot();

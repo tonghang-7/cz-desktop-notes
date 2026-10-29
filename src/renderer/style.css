@@ -1109,58 +1109,204 @@ body.mg {
   color: rgba(60, 53, 39, 0.45);
 }
 
-/* ── 皮肤选择器 ──
- * 方块自己带 data-skin，用同一套变量画出该皮肤的纹理 —— 不用另写一套缩略图样式。
- * 素纸那块没有 CSS 规则，会继承当前皮肤的 --skin-texture，所以用 [data-skin='']
- * 显式清空（特异性比 [data-skin='grid'] 高，能压住继承值）。
- */
-.mg__skins {
+/* ══ 皮肤管理窗 ══ */
+
+body.sk {
   display: flex;
-  gap: 6px;
-  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  gap: 16px;
+  padding: 20px 22px 18px;
+  background: #f6f5f2;
+  color: #3c3527;
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
 }
 
-.mg__skin {
-  width: 40px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid rgba(60, 53, 39, 0.2);
-  border-radius: 3px;
-  background-color: #fdf0c7;
-  /* 方块自己定义 --skin-bg，不然会继承 html 上「当前皮肤」的那一层 */
-  --skin-bg: var(--skin-texture);
-  --skin-bg-size: var(--skin-texture-size);
-  background-image: var(--skin-bg);
-  background-size: var(--skin-bg-size);
-  background-position: center;
+.sk__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+
+.sk__intro h1 {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.sk__intro p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(60, 53, 39, 0.55);
+}
+
+.sk__ghost {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid rgba(60, 53, 39, 0.18);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(60, 53, 39, 0.75);
+  font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
 }
 
-.mg__skin[data-skin=''] {
+.sk__ghost:hover {
+  background: rgba(60, 53, 39, 0.06);
+}
+
+.sk__grid {
+  /* 不撑满：皮肤只有几张的时候，卡片贴着标题排，别把滑杆推到窗口最底下 */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  /* 158 而不是 168：窗口 760 减去 padding 44 和网格自身 4，剩 712，
+     168 的四列要 714 —— 差 2px 就掉成三列，右边空一大块 */
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 14px;
+  align-content: start;
+  padding: 2px;
+}
+
+.sk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+/*
+ * 预览纸。带上 data-skin 之后，它用的就是那张皮肤的那套变量 ——
+ * 和真实卡片同一份 CSS，不用为预览另写一套。
+ */
+.sk-card__paper {
+  --paper: #fdf0c7;
+  --skin-bg: var(--skin-texture);
+  --skin-bg-size: var(--skin-texture-size);
+  display: block;
+  height: 96px;
+  padding: 12px 14px;
+  border-radius: var(--skin-radius);
+  background-color: var(--paper);
+  background-image: var(--skin-bg);
+  background-size: var(--skin-bg-size);
+  background-position: center;
+  box-shadow: 0 3px 10px rgba(60, 45, 15, 0.12);
+  font-family: var(--skin-font);
+  color: var(--skin-ink);
+  font-size: 11px;
+  line-height: 1.65;
+  overflow: hidden;
+  transition: box-shadow 0.12s ease, outline-color 0.12s ease;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.sk-card__line {
+  display: block;
+  white-space: nowrap;
+}
+
+/* 素纸那张没有自己的规则，会继承 html 上当前皮肤的纹理，必须显式清掉 */
+.sk-card__paper[data-skin=''] {
   --skin-texture: none;
   --skin-texture-size: auto;
 }
 
-/* 自定义背景方块：有图显示图（和便签一样垫一层纸色），没图是个虚线框 */
-.mg__skin[data-skin='photo'] {
+.sk-card:hover .sk-card__paper {
+  box-shadow: 0 5px 16px rgba(60, 45, 15, 0.18);
+}
+
+.sk-card.is-on .sk-card__paper {
+  outline-color: #b45309;
+}
+
+.sk-card__name {
+  font-size: 12px;
+  color: rgba(60, 53, 39, 0.7);
+  padding-left: 2px;
+}
+
+.sk-card.is-on .sk-card__name {
+  color: #b45309;
+}
+
+/* 「用自己的图片」那块：有图就显示图，没图是个虚线框 */
+.sk-card__paper[data-skin='photo'] {
   --skin-bg:
     linear-gradient(color-mix(in srgb, #fdf0c7 var(--skin-photo-veil), transparent),
       color-mix(in srgb, #fdf0c7 var(--skin-photo-veil), transparent)),
     var(--skin-photo);
   --skin-bg-size: auto, cover;
-  border-style: dashed;
 }
 
-.mg__skin[data-skin='photo']:not(.has-photo)::after {
+.sk-card.is-empty .sk-card__paper {
+  box-shadow: none;
+  border: 1.5px dashed rgba(60, 53, 39, 0.22);
+}
+
+.sk-card.is-empty .sk-card__line {
+  display: none;
+}
+
+.sk-card.is-empty .sk-card__paper::after {
   content: '+';
   display: grid;
   place-items: center;
   height: 100%;
-  font-size: 15px;
+  font-size: 20px;
+  color: rgba(60, 53, 39, 0.32);
+}
+
+.sk__veilbox {
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(60, 53, 39, 0.04);
+}
+
+.sk__veil {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.sk__veil input[type='range'] {
+  flex: 1 1 auto;
+  accent-color: #b45309;
+  cursor: pointer;
+}
+
+.sk__veil output {
+  flex: 0 0 42px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(60, 53, 39, 0.6);
+}
+
+.sk__tip {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
   color: rgba(60, 53, 39, 0.45);
 }
 
-.mg__skin.is-on {
-  outline: 2px solid #b45309;
-  outline-offset: 1px;
+#tip {
+  flex: 0 0 auto;
+  margin: 0;
+  min-height: 16px;
 }

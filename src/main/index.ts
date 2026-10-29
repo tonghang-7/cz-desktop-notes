@@ -314,6 +314,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('ui:open-manager', (_e, fromCard?: boolean) => W.showManager(!!fromCard));
+  ipcMain.handle('ui:open-skin', () => W.showSkinWindow());
   ipcMain.handle('ui:hide-notepad', () => W.hideNotepad());
   ipcMain.handle('ui:show-notepad', () => W.showNotepad());
   ipcMain.handle('ui:hotkey', () => getActiveHotkey());

@@ -11,6 +11,7 @@
  * 两条路径共用同一套阈值判定和状态机，区别只在 paint 的部分。
  */
 import { DEFAULT_SETTINGS, type Note, type NoteDb } from '../shared/types';
+import { applySkin, applySkinPhoto } from './skin-runtime';
 
 const stage = document.getElementById('stage') as HTMLElement;
 const countEl = document.getElementById('count') as HTMLElement;
@@ -81,52 +82,6 @@ let lastTopId = '';
 // 窗口失焦要能中止当前手势，而 finish 定义在 attachGesture 内部。
 // 每次绑定时把它的引用挂出来，wire() 里那个只注册一次的 blur 监听器通过它调用。
 let activeFinish: ((cancelled: boolean) => void) | null = null;
-
-/**
- * 皮肤最终只落在 html 的一个属性上，CSS 用 [data-skin='x'] 覆盖那组变量。
- * 必须在 render() 之前调 —— 折角要读变量算纸背色，晚一步就是上一套皮肤的纸背。
- */
-function applySkin() {
-  const s = db.settings.skin;
-  if (s) document.documentElement.dataset.skin = s;
-  else delete document.documentElement.dataset.skin;
-}
-
-/**
- * 当前注入的背景图文件名。db 变化很频繁（打字都会广播），没变就别重读那几百 KB。
- */
-let skinPhotoName = '';
-
-/**
- * 把自定义背景图注入成 CSS 变量。
- *
- * 必须是 data URL：file:// 或自定义协议会被 Chromium 当成跨源，canvas 一读像素就 taint，
- * drawElementImage 抓图时会**直接跳过那张图** —— 折起来背景凭空消失。
- */
-async function applySkinPhoto() {
-  const name = db.settings.skinImage ?? '';
-  if (name === skinPhotoName) return;
-  skinPhotoName = name;
-
-  const root = document.documentElement;
-  const clear = () => {
-    root.style.removeProperty('--skin-photo');
-    delete root.dataset.skinPhoto;
-  };
-
-  if (!name) {
-    clear();
-    return;
-  }
-  const url = await window.api.readImage(name);
-  if (!url) {
-    // 文件被人手动删了：退回不含背景的样子，不要留个裂图
-    clear();
-    return;
-  }
-  root.style.setProperty('--skin-photo', `url("${url}")`);
-  root.dataset.skinPhoto = '1';
-}
 
 function applyVars() {
   const root = document.documentElement;
@@ -958,8 +913,8 @@ function wire() {
 
 async function boot() {
   db = await window.api.getDb();
-  applySkin();
-  await applySkinPhoto();
+  applySkin(db);
+  await applySkinPhoto(db);
   applyVars();
   // 图片要先落进内存再 render —— buildCard 是同步的，拿不到就是在画一张没有图的纸
   await preloadImages();
@@ -969,10 +924,10 @@ async function boot() {
 
   window.api.onDbChanged((next) => {
     db = next;
-    applySkin();
+    applySkin(db);
     applyVars();
     void (async () => {
-      await applySkinPhoto();
+      await applySkinPhoto(db);
       await preloadImages();
       render();
     })();

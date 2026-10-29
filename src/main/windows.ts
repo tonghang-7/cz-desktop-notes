@@ -6,6 +6,7 @@ import { trace } from './perf';
 
 let notepad: BrowserWindow | null = null;
 let manager: BrowserWindow | null = null;
+let skinWin: BrowserWindow | null = null;
 let quitting = false;
 
 const preloadPath = () => path.join(__dirname, '../preload/index.js');
@@ -209,17 +210,62 @@ export function showManager(focusEditor = false) {
   }
 }
 
+/**
+ * 皮肤管理窗。按需打开、关掉即销毁 —— 它不像便签那样常驻，
+ * 所以「一个窗口一个渲染进程」的成本只在开着的时候付（约 50MB）。
+ */
+export function createSkinWindow(): BrowserWindow {
+  if (skinWin && !skinWin.isDestroyed()) return skinWin;
+
+  skinWin = new BrowserWindow({
+    width: 760,
+    height: 420,
+    minWidth: 620,
+    minHeight: 360,
+    title: '皮肤管理 · 苍泽便签',
+    backgroundColor: '#f6f5f2',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      spellcheck: false,
+    },
+  });
+
+  skinWin.loadFile(path.join(__dirname, '../renderer/skin.html'));
+  skinWin.once('ready-to-show', () => skinWin?.show());
+  skinWin.on('closed', () => {
+    skinWin = null;
+  });
+  skinWin.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  return skinWin;
+}
+
+export function showSkinWindow() {
+  const win = createSkinWindow();
+  if (!win.isVisible()) win.show();
+  win.focus();
+}
+
 export function broadcastDb() {
   const db = getDb();
-  for (const win of [notepad, manager]) {
+  for (const win of [notepad, manager, skinWin]) {
     if (win && !win.isDestroyed()) win.webContents.send('db:changed', db);
   }
 }
 
 export function destroyAll() {
-  for (const win of [notepad, manager]) {
+  for (const win of [notepad, manager, skinWin]) {
     if (win && !win.isDestroyed()) win.destroy();
   }
   notepad = null;
   manager = null;
+  skinWin = null;
 }
