@@ -6,7 +6,7 @@
  *
  * 唯一需要小心的是编辑器：重建 DOM 会让 textarea 从文档里移除并触发 blur。
  */
-import { DEFAULT_SETTINGS, type Note, type NoteColor, type NoteDb } from '../shared/types';
+import { DEFAULT_SETTINGS, SKINS, type Note, type NoteColor, type NoteDb } from '../shared/types';
 
 const COLORS: { key: NoteColor; hex: string }[] = [
   { key: 'amber', hex: '#fdf0c7' },
@@ -30,6 +30,7 @@ const sizeH = document.getElementById('size-h') as HTMLInputElement;
 const sizeWOut = document.getElementById('size-w-out') as HTMLOutputElement;
 const sizeHOut = document.getElementById('size-h-out') as HTMLOutputElement;
 const hint = document.getElementById('hint') as HTMLElement;
+const cfgSkins = document.getElementById('cfg-skins') as HTMLElement;
 const cfgAutoLaunch = document.getElementById('cfg-autolaunch') as HTMLInputElement;
 const cfgDataDir = document.getElementById('cfg-datadir') as HTMLElement;
 const btnDataDir = document.getElementById('btn-datadir') as HTMLButtonElement;
@@ -435,6 +436,36 @@ function renderArchive() {
   }
 }
 
+/**
+ * 皮肤最终落在 html 的一个属性上，[data-skin='x'] 覆盖那组变量。
+ * 管理窗自己也跟着切，这样预览方块之外的整体观感不会跟便签窗对不上。
+ */
+function applySkin() {
+  const s = db.settings.skin;
+  if (s) document.documentElement.dataset.skin = s;
+  else delete document.documentElement.dataset.skin;
+}
+
+/**
+ * 皮肤选择器。每个方块自己带 data-skin，靠同一套 CSS 变量画出该皮肤的纹理——
+ * 不用另写一套缩略图样式，加新皮肤时这里也不用改。
+ */
+function renderSkins() {
+  cfgSkins.innerHTML = '';
+  for (const skin of SKINS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mg__skin';
+    btn.title = skin.label;
+    btn.dataset.skin = skin.id;
+    if (skin.id === (db.settings.skin ?? '')) btn.classList.add('is-on');
+    btn.addEventListener('click', () => {
+      void window.api.updateSettings({ skin: skin.id });
+    });
+    cfgSkins.appendChild(btn);
+  }
+}
+
 function syncSize() {
   // 用户正在拖滑块时不回写，否则输入框的值会在拖动过程中被自己覆盖
   if (document.activeElement === sizeW || document.activeElement === sizeH) return;
@@ -445,9 +476,11 @@ function syncSize() {
 }
 
 function render() {
+  applySkin();
   renderList();
   renderEditor();
   renderArchive();
+  renderSkins();
   syncSize();
 }
 

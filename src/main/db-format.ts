@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
   clampCardSize,
+  isSkin,
   type Note,
   type NoteColor,
   type NoteDb,
@@ -84,6 +85,8 @@ function normalizeSettings(raw: unknown): Settings {
     windowX: typeof r.windowX === 'number' ? r.windowX : null,
     windowY: typeof r.windowY === 'number' ? r.windowY : null,
     autoLaunch: typeof r.autoLaunch === 'boolean' ? r.autoLaunch : DEFAULT_SETTINGS.autoLaunch,
+    // 手改过 data.json 写了不存在的皮肤也不该崩：匹配不到 CSS 规则就是素纸
+    skin: isSkin(r.skin) ? r.skin : DEFAULT_SETTINGS.skin,
   };
 }
 

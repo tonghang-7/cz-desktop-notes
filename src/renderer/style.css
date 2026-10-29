@@ -1075,3 +1075,36 @@ body.mg {
   font-variant-numeric: tabular-nums;
   color: rgba(60, 53, 39, 0.45);
 }
+
+/* ── 皮肤选择器 ──
+ * 方块自己带 data-skin，用同一套变量画出该皮肤的纹理 —— 不用另写一套缩略图样式。
+ * 素纸那块没有 CSS 规则，会继承当前皮肤的 --skin-texture，所以用 [data-skin='']
+ * 显式清空（特异性比 [data-skin='grid'] 高，能压住继承值）。
+ */
+.mg__skins {
+  display: flex;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.mg__skin {
+  width: 40px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(60, 53, 39, 0.2);
+  border-radius: 3px;
+  background-color: #fdf0c7;
+  background-image: var(--skin-texture);
+  background-size: var(--skin-texture-size);
+  cursor: pointer;
+}
+
+.mg__skin[data-skin=''] {
+  --skin-texture: none;
+  --skin-texture-size: auto;
+}
+
+.mg__skin.is-on {
+  outline: 2px solid #b45309;
+  outline-offset: 1px;
+}

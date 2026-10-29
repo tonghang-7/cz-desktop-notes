@@ -142,6 +142,26 @@ test('normalizeDb：autoLaunch 是乱七八糟的值就退回默认', () => {
   assert.equal(db.settings.autoLaunch, false);
 });
 
+test('normalizeDb：老数据没有 skin，补成空串（素纸）', () => {
+  const db = normalizeDb(validDb());
+  assert.equal(db.settings.skin, '');
+});
+
+test('normalizeDb：认得的皮肤留住', () => {
+  const raw = validDb();
+  raw.settings.skin = 'grid';
+  const db = normalizeDb(raw);
+  assert.equal(db.settings.skin, 'grid');
+});
+
+test('normalizeDb：手改 json 写成不存在的皮肤，退回素纸而不是崩', () => {
+  const raw = validDb();
+  raw.settings.skin = '不存在的皮肤';
+  const db = normalizeDb(raw);
+  assert.equal(db.settings.skin, '');
+});
+
+
 test('normalizeDb：非对象条目丢掉，缺 id 的条目补 id', () => {
   const db = normalizeDb({
     notes: [null, 'x', { text: '没有 id' }, { id: 'ok', text: '有 id' }],

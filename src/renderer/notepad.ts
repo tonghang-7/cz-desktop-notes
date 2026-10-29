@@ -82,6 +82,16 @@ let lastTopId = '';
 // 每次绑定时把它的引用挂出来，wire() 里那个只注册一次的 blur 监听器通过它调用。
 let activeFinish: ((cancelled: boolean) => void) | null = null;
 
+/**
+ * 皮肤最终只落在 html 的一个属性上，CSS 用 [data-skin='x'] 覆盖那组变量。
+ * 必须在 render() 之前调 —— 折角要读变量算纸背色，晚一步就是上一套皮肤的纸背。
+ */
+function applySkin() {
+  const s = db.settings.skin;
+  if (s) document.documentElement.dataset.skin = s;
+  else delete document.documentElement.dataset.skin;
+}
+
 function applyVars() {
   const root = document.documentElement;
   root.style.setProperty('--card-w', `${db.settings.cardWidth}px`);
@@ -912,6 +922,7 @@ function wire() {
 
 async function boot() {
   db = await window.api.getDb();
+  applySkin();
   applyVars();
   // 图片要先落进内存再 render —— buildCard 是同步的，拿不到就是在画一张没有图的纸
   await preloadImages();
@@ -921,6 +932,7 @@ async function boot() {
 
   window.api.onDbChanged((next) => {
     db = next;
+    applySkin();
     applyVars();
     void (async () => {
       await preloadImages();

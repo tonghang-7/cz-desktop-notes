@@ -26,6 +26,26 @@ export interface Settings {
   windowY: number | null;
   /** 开机自启。数据目录不在这里 —— 它决定 data.json 在哪，写在自己里面就成了鸡生蛋。 */
   autoLaunch: boolean;
+  /**
+   * 皮肤 id，空串 = 素纸。
+   * 皮肤只改「材质」（背景纹理、字体、形状、纸背压暗），纸色仍是每张便签的 color，
+   * 两者正交 —— 同一个方格纸皮肤配琥珀是黄色方格纸，配浅蓝就是蓝色方格纸。
+   */
+  skin: string;
+}
+
+/**
+ * 内置皮肤。label 给管理窗用，id 对应 style.css 里的 [data-skin='...'] 规则。
+ * 加新皮肤：这里加一条，CSS 加一块变量覆盖，别的都不用动。
+ */
+export const SKINS = [
+  { id: '', label: '素纸' },
+  { id: 'grid', label: '方格' },
+  { id: 'kraft', label: '牛皮' },
+] as const;
+
+export function isSkin(v: unknown): v is string {
+  return typeof v === 'string' && SKINS.some((s) => s.id === v);
 }
 
 export interface NoteDb {
@@ -50,6 +70,7 @@ export const DEFAULT_SETTINGS: Settings = {
   windowX: null,
   windowY: null,
   autoLaunch: false,
+  skin: '',
 };
 
 export const HOTKEY_CANDIDATES = [
