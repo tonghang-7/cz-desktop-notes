@@ -320,17 +320,38 @@ function attachGesture(
   const depthLimit = Math.hypot(CW, CH) * FOLD_DEPTH_RATIO;
   let foldThreshold = 0;
 
-  // 卡片底色按比例压暗。硬编码颜色的话，换卡片配色时纸背会对不上。
-  const tone = (k: number, fallback: string) => {
-    const bg = getComputedStyle(card).backgroundColor;
-    const m = bg.match(/(\d+)\D+(\d+)\D+(\d+)/);
-    if (!m) return fallback;
-    return `rgb(${Math.round(Number(m[1]) * k)}, ${Math.round(Number(m[2]) * k)}, ${Math.round(
-      Number(m[3]) * k
-    )})`;
-  };
-  // 纸背：压暗 7%，折过去那一面
-  const paperBack = tone(0.93, 'rgb(238, 227, 194)');
+  /**
+   * 折纸要用的颜色，全部从 CSS 变量读。
+   *
+   * 原来纸背色是从卡片的 computed background 里正则抠 RGB 再压暗 —— 那等于假设
+   * 「卡片底色是不透明纯色」。皮肤一旦用渐变或背景图，backgroundColor 就是
+   * rgba(0, 0, 0, 0)，抠出来是纯黑，折起来的纸背会突然变成一块黑。
+   * 真源必须是有明确含义的 --paper。
+   */
+  const skinVar = (name: string, fallback: string) =>
+    getComputedStyle(card).getPropertyValue(name).trim() || fallback;
+
+  const paperRgb = (() => {
+    const raw = skinVar('--paper', '#fdf0c7');
+    const hex = raw.match(/^#([0-9a-f]{6})$/i);
+    if (hex) {
+      const n = parseInt(hex[1], 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as const;
+    }
+    const rgb = raw.match(/^rgba?\(\s*(\d+)\D+(\d+)\D+(\d+)/);
+    if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] as const;
+    return [253, 240, 199] as const;
+  })();
+
+  // 纸背 = 纸色压暗。深色皮肤要另给一个 --back-tone，同样的比例在黑底上看不出来。
+  const backTone = Number(skinVar('--back-tone', '0.93')) || 0.93;
+  const paperBack = `rgb(${Math.round(paperRgb[0] * backTone)}, ${Math.round(
+    paperRgb[1] * backTone
+  )}, ${Math.round(paperRgb[2] * backTone)})`;
+
+  // 折痕线、纸背透出的正面字痕 —— 深色皮肤这两个都得换，不然等于没画
+  const creaseColor = skinVar('--fold-crease', 'rgba(92, 72, 32, 0.26)');
+  const ghostAlpha = Number(skinVar('--fold-ghost', '0.07')) || 0.07;
 
   let bitmap: HTMLCanvasElement | null = null;
   let capturing = false;
@@ -458,7 +479,7 @@ function attachGesture(
     ctx.fillStyle = paperBack;
     ctx.fillRect(CX, CY, CW, CH);
     // 叠一层 7% 的正面：真纸翻过来多少能透出一点背面透过来的字痕
-    ctx.globalAlpha = 0.07;
+    ctx.globalAlpha = ghostAlpha;
     ctx.drawImage(bitmap, 0, 0);
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -474,7 +495,7 @@ function attachGesture(
     ctx.beginPath();
     ctx.moveTo(mx - ny * big, my + nx * big);
     ctx.lineTo(mx + ny * big, my - nx * big);
-    ctx.strokeStyle = 'rgba(92,72,32,0.26)';
+    ctx.strokeStyle = creaseColor;
     ctx.lineWidth = 1.4;
     ctx.stroke();
     ctx.restore();

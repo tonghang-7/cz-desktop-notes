@@ -4,6 +4,57 @@
   --pad: 22px;
   --bar-h: 34px;
   --ink: #3c3527;
+
+  /*
+   * 皮肤的全部着力点。
+   *
+   * 换皮肤 = 改这十来个变量，渲染代码里不再有写死的颜色和尺寸。
+   * 默认值刻意逐项等于重构之前的值：在没有皮肤之前，画面必须和以前逐像素一致。
+   */
+  --skin-font: 'Segoe UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  --skin-radius: 4px;
+  --skin-pad-top: 22px;
+  --skin-pad-x: 22px;
+  --skin-pad-bottom: 20px;
+  --skin-ink: #3f3626;
+  --skin-shadow: 0 12px 30px rgba(60, 45, 15, 0.17), 0 2px 6px rgba(60, 45, 15, 0.08);
+  --skin-shadow-lift: 0 18px 44px rgba(60, 45, 15, 0.24), 0 3px 8px rgba(60, 45, 15, 0.1);
+  /* 纸顶边那道 5px 的压深，让纸看起来有厚度 */
+  --skin-top-fade: linear-gradient(180deg, rgba(60, 45, 15, 0.16), rgba(60, 45, 15, 0));
+  /* 叠在纸色之上的纹理 / 格线 / 图片。纸色仍然是 --paper，两者是底 + 面两层 */
+  --skin-texture: none;
+  --skin-texture-size: auto;
+  /* 折过去那一面压多暗。深色皮肤要另一套值，否则压暗看不出来 */
+  --back-tone: 0.93;
+  /* 折痕线、纸背透出的正面字痕。深色皮肤上这两个必须换 */
+  --fold-crease: rgba(92, 72, 32, 0.26);
+  --fold-ghost: 0.07;
+}
+
+/* ── 皮肤 ──
+ * 一个皮肤 = 一组变量覆盖。纸色（--paper）不在这里，它仍然是每张便签自己的选择。
+ * 要加新皮肤，照抄下面任一块改数值即可，渲染代码不用动。
+ */
+
+/* 方格纸：两组格线交叉。0.13 的透明度在五种纸色上都压得住，不抢字 */
+[data-skin='grid'] {
+  --skin-texture:
+    repeating-linear-gradient(0deg, rgba(84, 112, 150, 0.18) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(90deg, rgba(84, 112, 150, 0.18) 0 1px, transparent 1px 26px);
+  --skin-radius: 2px;
+}
+
+/* 牛皮纸：暖褐罩一层 + 细颗粒。颗粒靠 background-size 平铺的径向渐变做，不引外部图 */
+[data-skin='kraft'] {
+  --skin-texture:
+    radial-gradient(circle at 12% 22%, rgba(96, 68, 26, 0.22) 0 1.4px, transparent 2px),
+    radial-gradient(circle at 63% 47%, rgba(96, 68, 26, 0.16) 0 1.1px, transparent 1.7px),
+    radial-gradient(circle at 84% 78%, rgba(96, 68, 26, 0.2) 0 1.5px, transparent 2.1px),
+    linear-gradient(170deg, rgba(138, 96, 36, 0.34), rgba(138, 96, 36, 0.2));
+  --skin-texture-size: 64px 64px, 48px 48px, 82px 82px, auto;
+  --skin-radius: 2px;
+  --skin-top-fade: linear-gradient(180deg, rgba(70, 46, 12, 0.26), rgba(70, 46, 12, 0));
+  --back-tone: 0.86;
 }
 
 * {
@@ -20,7 +71,7 @@ body {
 body.np {
   background: transparent;
   overflow: hidden;
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-family: var(--skin-font);
   -webkit-user-select: none;
   user-select: none;
   cursor: default;
@@ -128,10 +179,12 @@ body.np {
   left: 0;
   width: var(--card-w);
   height: var(--card-h);
-  border-radius: 4px;
-  background: var(--paper, #f7f2e3);
+  border-radius: var(--skin-radius);
+  background-color: var(--paper, #f7f2e3);
+  background-image: var(--skin-texture);
+  background-size: var(--skin-texture-size);
   z-index: 8;
-  padding: 22px 22px 20px;
+  padding: var(--skin-pad-top) var(--skin-pad-x) var(--skin-pad-bottom);
   overflow: hidden;
 }
 
@@ -150,15 +203,17 @@ body.np {
   left: 0;
   width: var(--card-w);
   height: var(--card-h);
-  border-radius: 4px;
-  background: var(--paper);
-  box-shadow: 0 12px 30px rgba(60, 45, 15, 0.17), 0 2px 6px rgba(60, 45, 15, 0.08);
+  border-radius: var(--skin-radius);
+  background-color: var(--paper);
+  background-image: var(--skin-texture);
+  background-size: var(--skin-texture-size);
+  box-shadow: var(--skin-shadow);
   transform-origin: 50% 0%;
   transform-style: preserve-3d;
   will-change: transform, opacity;
   cursor: grab;
   z-index: 10;
-  padding: 22px 22px 20px;
+  padding: var(--skin-pad-top) var(--skin-pad-x) var(--skin-pad-bottom);
   overflow: hidden;
 }
 
@@ -167,13 +222,13 @@ body.np {
   position: absolute;
   inset: 0 0 auto 0;
   height: 5px;
-  background: linear-gradient(180deg, rgba(60, 45, 15, 0.16), rgba(60, 45, 15, 0));
+  background: var(--skin-top-fade);
   pointer-events: none;
 }
 
 .card.is-dragging {
   cursor: grabbing;
-  box-shadow: 0 18px 44px rgba(60, 45, 15, 0.24), 0 3px 8px rgba(60, 45, 15, 0.1);
+  box-shadow: var(--skin-shadow-lift);
 }
 
 .card[data-color="amber"],
@@ -206,7 +261,7 @@ body.np {
   height: 100%;
   font-size: 15px;
   line-height: 1.6;
-  color: #3f3626;
+  color: var(--skin-ink);
   white-space: pre-wrap;
   word-break: break-word;
   overflow: hidden;
