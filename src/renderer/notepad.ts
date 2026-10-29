@@ -11,7 +11,7 @@
  * 两条路径共用同一套阈值判定和状态机，区别只在 paint 的部分。
  */
 import { DEFAULT_SETTINGS, type Note, type NoteDb } from '../shared/types';
-import { applySkin, applySkinPhoto } from './skin-runtime';
+import { applyAllSkin } from './skin-runtime';
 
 const stage = document.getElementById('stage') as HTMLElement;
 const countEl = document.getElementById('count') as HTMLElement;
@@ -913,8 +913,7 @@ function wire() {
 
 async function boot() {
   db = await window.api.getDb();
-  applySkin(db);
-  await applySkinPhoto(db);
+  await applyAllSkin(db);
   applyVars();
   // 图片要先落进内存再 render —— buildCard 是同步的，拿不到就是在画一张没有图的纸
   await preloadImages();
@@ -924,10 +923,9 @@ async function boot() {
 
   window.api.onDbChanged((next) => {
     db = next;
-    applySkin(db);
     applyVars();
     void (async () => {
-      await applySkinPhoto(db);
+      await applyAllSkin(db);
       await preloadImages();
       render();
     })();

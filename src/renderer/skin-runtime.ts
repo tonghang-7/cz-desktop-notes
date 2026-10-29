@@ -13,14 +13,14 @@ import type { NoteDb } from '../shared/types';
 let photoName = '';
 
 /** 皮肤 id → <html data-skin>，CSS 用 [data-skin='x'] 覆盖那组变量。 */
-export function applySkin(db: NoteDb) {
+function applySkin(db: NoteDb) {
   const s = db.settings.skin;
   if (s) document.documentElement.dataset.skin = s;
   else delete document.documentElement.dataset.skin;
 }
 
 /** 蒙版浓度 → CSS 变量。0 = 纯照片，100 = 完全被纸色盖住。 */
-export function applyVeil(db: NoteDb) {
+function applyVeil(db: NoteDb) {
   const v = typeof db.settings.skinVeil === 'number' ? db.settings.skinVeil : 55;
   document.documentElement.style.setProperty('--skin-photo-veil', `${v}%`);
 }
@@ -31,7 +31,7 @@ export function applyVeil(db: NoteDb) {
  * 必须是 data URL：file:// 或自定义协议会被 Chromium 当成跨源，canvas 一读像素就 taint，
  * drawElementImage 抓图时会**直接跳过那张图** —— 折起来背景凭空消失。
  */
-export async function applySkinPhoto(db: NoteDb) {
+async function applySkinPhoto(db: NoteDb) {
   const name = db.settings.skinImage ?? '';
   if (name === photoName) return;
   photoName = name;
@@ -56,7 +56,11 @@ export async function applySkinPhoto(db: NoteDb) {
   root.dataset.skinPhoto = '1';
 }
 
-/** 三件事一起做，同步部分先落地，背景图异步补上。 */
+/**
+ * 唯一的对外入口。三个设置项必须一起落 —— 单独调其中一个，剩下那个就永远停在
+ * CSS 里的默认值上（便签窗曾经只调了前两项，蒙版浓度滑杆怎么拖都没反应）。
+ * 所以 applySkin / applyVeil / applySkinPhoto 一律不导出。
+ */
 export async function applyAllSkin(db: NoteDb) {
   applySkin(db);
   applyVeil(db);
