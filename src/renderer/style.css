@@ -114,31 +114,25 @@ body.np {
   z-index: 12;
 }
 
+/*
+ * 下面是同一叠里紧贴着的下一张 —— 位置、尺寸、颜色跟上面那张一模一样。
+ *
+ * 这里曾经做过「层次感」：下移 7px、左右各收 6px、越往下越暗、还给第二层
+ * scaleX(0.975)。静止时看着像一叠纸的边缘，但一折起来就露馅 ——
+ * 掀开第一张，底下那张是错位的，两张对不齐。
+ * 这套设计的本质是「一张叠一张、只看得到最上层」，那就老老实实重合。
+ */
 .peek {
   position: absolute;
   top: 0;
-  left: 6px;
-  right: 6px;
+  left: 0;
+  width: var(--card-w);
   height: var(--card-h);
   border-radius: 4px;
-  /*
-   * 跟着自己那张便签的颜色走。原来这里写死 #f7f2e3，于是不管上面那张是什么色，
-   * 一掀起来露出的永远是同一张米白 —— 在琥珀色底下看就是「一张白纸」。
-   * 压暗一点表示它在下面一层，最下面那张（data-i=2）再暗一档。
-   */
   background: var(--paper, #f7f2e3);
-  filter: brightness(0.965);
-  box-shadow: 0 5px 14px rgba(60, 45, 15, 0.08);
   z-index: 8;
-  transform: translateY(7px);
   padding: 22px 22px 20px;
   overflow: hidden;
-}
-
-.peek[data-i="2"] {
-  z-index: 7;
-  filter: brightness(0.93);
-  transform: translateY(15px) scaleX(0.975);
 }
 
 /*

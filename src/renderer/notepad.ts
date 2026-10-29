@@ -203,11 +203,10 @@ function startDueTicker() {
   }, 1000);
 }
 
-function buildPeek(note: Note, i: number): HTMLElement {
+function buildPeek(note: Note): HTMLElement {
   const el = document.createElement('div');
   el.className = 'peek';
-  el.dataset.i = String(i);
-  // 下面那张纸有它自己的颜色。不设的话所有底下的纸都是写死的米白，
+  // 跟着自己那张便签的颜色走。不设的话底下的纸永远是写死的米白，
   // 一掀起来就露出一张「不是这个颜色」的白纸。
   el.dataset.color = note.color;
 
@@ -248,9 +247,8 @@ function render() {
   }
 
   const top = notes[0];
-  // 只叠 2 层。再多也看不出层次，白白多画两个 DOM。
-  const extra = Math.min(notes.length - 1, 2);
-  for (let i = extra; i >= 1; i--) stage.appendChild(buildPeek(notes[i], i));
+  // 只垫一张。下面那张和上面那张完全重合，多建几层也全被盖住 —— 白画。
+  if (notes.length > 1) stage.appendChild(buildPeek(notes[1]));
 
   const card = buildCard(top);
   if (top.id !== lastTopId) {
