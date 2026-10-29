@@ -207,6 +207,9 @@ function buildPeek(note: Note, i: number): HTMLElement {
   const el = document.createElement('div');
   el.className = 'peek';
   el.dataset.i = String(i);
+  // 下面那张纸有它自己的颜色。不设的话所有底下的纸都是写死的米白，
+  // 一掀起来就露出一张「不是这个颜色」的白纸。
+  el.dataset.color = note.color;
 
   const text = document.createElement('div');
   text.className = 'peek__text';

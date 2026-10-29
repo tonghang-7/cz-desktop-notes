@@ -121,7 +121,13 @@ body.np {
   right: 6px;
   height: var(--card-h);
   border-radius: 4px;
-  background: #f7f2e3;
+  /*
+   * 跟着自己那张便签的颜色走。原来这里写死 #f7f2e3，于是不管上面那张是什么色，
+   * 一掀起来露出的永远是同一张米白 —— 在琥珀色底下看就是「一张白纸」。
+   * 压暗一点表示它在下面一层，最下面那张（data-i=2）再暗一档。
+   */
+  background: var(--paper, #f7f2e3);
+  filter: brightness(0.965);
   box-shadow: 0 5px 14px rgba(60, 45, 15, 0.08);
   z-index: 8;
   transform: translateY(7px);
@@ -131,7 +137,7 @@ body.np {
 
 .peek[data-i="2"] {
   z-index: 7;
-  background: #efe9d8;
+  filter: brightness(0.93);
   transform: translateY(15px) scaleX(0.975);
 }
 
@@ -176,23 +182,28 @@ body.np {
   box-shadow: 0 18px 44px rgba(60, 45, 15, 0.24), 0 3px 8px rgba(60, 45, 15, 0.1);
 }
 
-.card[data-color="amber"] {
+.card[data-color="amber"],
+.peek[data-color="amber"] {
   --paper: #fdf0c7;
 }
 
-.card[data-color="rose"] {
+.card[data-color="rose"],
+.peek[data-color="rose"] {
   --paper: #fce4ea;
 }
 
-.card[data-color="sky"] {
+.card[data-color="sky"],
+.peek[data-color="sky"] {
   --paper: #dfeefb;
 }
 
-.card[data-color="mint"] {
+.card[data-color="mint"],
+.peek[data-color="mint"] {
   --paper: #ddf3e4;
 }
 
-.card[data-color="violet"] {
+.card[data-color="violet"],
+.peek[data-color="violet"] {
   --paper: #eae4fb;
 }
 
