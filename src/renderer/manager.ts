@@ -61,6 +61,8 @@ let draggingId: string | null = null;
 let saveTimer: number | null = null;
 // 录制热键期间，按键的含义是「设成什么」，不是「执行什么」
 let recordingHotkey = false;
+// 主键已经按下、正在等用户松手的那一组。松手前不检测、不保存。
+let pendingAccel: string | null = null;
 let sizeTimer: number | null = null;
 let savedTimer: number | null = null;
 
@@ -542,6 +544,58 @@ function prettyHotkey(accel: string) {
 }
 
 /**
+ * 修饰键本身。它们单独按下不代表任何热键 —— 只是一次组合里的组成部分。
+ *
+ * 录制时必须先跳过它们：按 Ctrl 的那一瞬间 e.ctrlKey 已经是 true，
+ * 如果拿它当主键，拼出来就是 `Control+Control`，注册必失败，
+ * 而且老代码在这里就把录制结束了 —— 用户连第二个键都没机会按。
+ */
+const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'CapsLock', 'AltGraph', 'OS']);
+
+/**
+ * 主键名。用 e.code（物理键位）而不是 e.key：
+ * 中文输入法下 e.key 可能变成 `Process`，大小写还会跟着 CapsLock 漂。
+ * e.code 是 `KeyA` / `Digit1` / `F5` / `Space` 这种，正好对得上 Electron 的写法。
+ */
+const CODE_KEYS: Record<string, string> = {
+  Space: 'Space',
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Enter: 'Return',
+  NumpadEnter: 'Return',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  Insert: 'Insert',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Backquote: '`',
+};
+
+function keyNameOf(e: KeyboardEvent): string {
+  const c = e.code;
+  if (c.startsWith('Key')) return c.slice(3); // KeyA → A
+  if (c.startsWith('Digit')) return c.slice(5); // Digit1 → 1
+  if (c.startsWith('Numpad')) return `num${c.slice(6)}`; // Numpad0 → num0
+  if (/^F\d{1,2}$/.test(c)) return c; // F5
+  return CODE_KEYS[c] ?? e.key;
+}
+
+/**
  * 把一次按键翻译成 Electron 的 accelerator 字符串。
  * 不带修饰键的单击不给过 —— 那会吞掉用户在别处的所有输入（单按 A 就呼出便签）。
  */
@@ -552,22 +606,35 @@ function accelFromEvent(e: KeyboardEvent): string | null {
   if (e.metaKey) parts.push('Super');
   if (e.altKey) parts.push('Alt');
   if (e.shiftKey) parts.push('Shift');
-  const key = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
-  parts.push(key);
+  parts.push(keyNameOf(e));
   return parts.join('+');
 }
 
+/**
+ * 真正提交：检测能不能注册、能就存下来。
+ * 只有成功才结束录制 —— 失败时停在「录制中」，让用户直接换一组重按，
+ * 不用再点一次「录制」。
+ */
 async function applyHotkey(accel: string) {
-  recordingHotkey = false;
-  btnHotkey.textContent = '录制';
-  btnHotkey.classList.remove('is-recording');
-
   const r = await window.api.setHotkey(accel);
   cfgHotkey.textContent = r.active ? prettyHotkey(r.active) : '未绑定';
   hint.textContent = r.active
     ? `按 ${prettyHotkey(r.active)} 随时呼出便签`
     : '热键未绑定成功，可从托盘图标呼出';
-  cfgTip.textContent = r.ok ? '已生效' : (r.reason ?? '没设成');
+
+  if (r.ok) {
+    stopRecording();
+    cfgTip.textContent = '已生效';
+  } else {
+    cfgTip.textContent = `「${prettyHotkey(accel)}」没设成：${r.reason ?? '被别的程序占了'}。直接再按一组`;
+  }
+}
+
+function stopRecording() {
+  recordingHotkey = false;
+  pendingAccel = null;
+  btnHotkey.textContent = '录制';
+  btnHotkey.classList.remove('is-recording');
 }
 
 async function changeDataDir(dir: string | null) {
@@ -635,9 +702,10 @@ function wire() {
 
   btnHotkey.addEventListener('click', () => {
     recordingHotkey = true;
-    btnHotkey.textContent = '按组合键…';
+    pendingAccel = null;
+    btnHotkey.textContent = '按下组合键…';
     btnHotkey.classList.add('is-recording');
-    cfgTip.textContent = '按想要的组合键，Esc 取消';
+    cfgTip.textContent = '按下想要的组合键，全部松开后生效；Esc 取消';
   });
 
   // 版本号放在这儿，是为了让人自己就能判断「要不要更新」——
@@ -708,22 +776,33 @@ function wire() {
   document.addEventListener('keydown', (e) => {
     if (recordingHotkey) {
       e.preventDefault();
-      const stop = () => {
-        recordingHotkey = false;
-        btnHotkey.textContent = '录制';
-        btnHotkey.classList.remove('is-recording');
-      };
+
       if (e.key === 'Escape') {
-        stop();
+        stopRecording();
         cfgTip.textContent = '已取消';
         return;
       }
+
+      // 按下的只是修饰键本身：记下就好，一个字都别提交。
+      // 用户这时还在往组合上加键，程序不该有任何动作。
+      if (MODIFIER_KEYS.has(e.key)) {
+        cfgTip.textContent = '继续按，全部松开后生效';
+        return;
+      }
+
       const accel = accelFromEvent(e);
       if (!accel) {
         cfgTip.textContent = '至少要带一个修饰键（Ctrl / Alt / Shift）';
         return;
       }
-      void applyHotkey(accel);
+
+      // 主键按下了，但**还不提交** —— 只把读到的组合报给用户看，
+      // 真正的检测和保存留到「全部松开」（见下面的 keyup）。
+      // 这样按住不放的时候还来得及改主意：再按一个键就覆盖这一组。
+      pendingAccel = accel;
+      cfgHotkey.textContent = prettyHotkey(accel);
+      btnHotkey.textContent = '松开生效…';
+      cfgTip.textContent = '松开全部按键后生效，按 Esc 取消';
       return;
     }
 
@@ -731,6 +810,28 @@ function wire() {
       e.preventDefault();
       void createNew();
     }
+  });
+
+  /**
+   * 全部松开才算「按完」。
+   *
+   * 只要还有修饰键按着就继续等 —— 用户可能按完 Space 又想加一个键。
+   * 等最后一个修饰键也松手，这一次组合才定下来，再去检测能不能注册。
+   */
+  document.addEventListener('keyup', (e) => {
+    if (!recordingHotkey || !pendingAccel) return;
+    if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
+    const accel = pendingAccel;
+    pendingAccel = null;
+    btnHotkey.textContent = '检测中…';
+    void applyHotkey(accel);
+  });
+
+  // 录制中途窗口失焦：keyup 可能一个都收不到，状态会一直挂着
+  window.addEventListener('blur', () => {
+    if (!recordingHotkey) return;
+    stopRecording();
+    cfgTip.textContent = '录制已取消（窗口失去焦点）';
   });
 
   // 粘贴图片：贴到当前选中的那张
