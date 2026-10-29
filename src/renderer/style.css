@@ -29,7 +29,13 @@
    * 选图就是「背景就是这张图」，不在上面再叠纹理。
    */
   --skin-photo: none;
-  /* 背景层的唯一出口。皮肤只改 --skin-texture，不直接碰 background-image。 */
+  /*
+   * 自定义背景图上垫的纸色蒙版浓度。照片要透出多少，字要读得多清楚，全看这个数。
+   * 0% = 纯照片（深色照片上黑字读不出来），100% = 完全被纸色盖住。
+   */
+  --skin-photo-veil: 55%;
+  /* 背景层的唯一出口。皮肤只改 --skin-texture，不直接碰 background-image。
+     有自定义图时 [data-skin-photo] 会把它整层换掉。 */
   --skin-bg: var(--skin-texture);
   --skin-bg-size: var(--skin-texture-size);
   /* 折过去那一面压多暗。深色皮肤要另一套值，否则压暗看不出来 */
@@ -44,10 +50,17 @@
  * 要加新皮肤，照抄下面任一块改数值即可，渲染代码不用动。
  */
 
-/* 有自定义图时，背景层只留那张图 */
-[data-skin-photo] {
-  --skin-bg: var(--skin-photo);
-  --skin-bg-size: cover;
+/*
+ * 有自定义图时，背景层就是这张图，但上面垫一层当前便签纸色的半透明。
+ *
+ * 为什么必须垫：实测一张深蓝底的照片，正文区 41% 的像素亮度低于 100 ——
+ * 黑字压在上面等于隐形。垫一层纸色把背景压平，字始终读得清；
+ * 而且蒙版用的是每张便签自己的纸色，浅蓝便签配蓝蒙版、琥珀配黄蒙版，不会发灰。
+ */
+[data-skin-photo] .card,
+[data-skin-photo] .peek {
+  --skin-bg: linear-gradient(var(--skin-veil), var(--skin-veil)), var(--skin-photo);
+  --skin-bg-size: auto, cover;
 }
 
 /* 方格纸：两组格线交叉。0.13 的透明度在五种纸色上都压得住，不抢字 */
@@ -195,6 +208,9 @@ body.np {
   height: var(--card-h);
   border-radius: var(--skin-radius);
   background-color: var(--paper, #f7f2e3);
+  /* 蒙版必须在卡片自己身上算：--paper 是每张便签各自的颜色，
+     放到 :root 上求值就取不到了（自定义属性在声明它的元素上替换） */
+  --skin-veil: color-mix(in srgb, var(--paper, #f7f2e3) var(--skin-photo-veil), transparent);
   background-image: var(--skin-bg);
   background-size: var(--skin-bg-size);
   background-position: center;
@@ -220,6 +236,7 @@ body.np {
   height: var(--card-h);
   border-radius: var(--skin-radius);
   background-color: var(--paper);
+  --skin-veil: color-mix(in srgb, var(--paper) var(--skin-photo-veil), transparent);
   background-image: var(--skin-bg);
   background-size: var(--skin-bg-size);
   background-position: center;
@@ -1122,14 +1139,25 @@ body.mg {
 .mg__skin[data-skin=''] {
   --skin-texture: none;
   --skin-texture-size: auto;
-  /*
-   * 自定义背景图（运行时注入 url(data:...)）。非空时 --skin-bg 整层换成它 ——
-   * 选图就是「背景就是这张图」，不在上面再叠纹理。
-   */
-  --skin-photo: none;
-  /* 背景层的唯一出口。皮肤只改 --skin-texture，不直接碰 background-image。 */
-  --skin-bg: var(--skin-texture);
-  --skin-bg-size: var(--skin-texture-size);
+}
+
+/* 自定义背景方块：有图显示图（和便签一样垫一层纸色），没图是个虚线框 */
+.mg__skin[data-skin='photo'] {
+  --skin-bg:
+    linear-gradient(color-mix(in srgb, #fdf0c7 var(--skin-photo-veil), transparent),
+      color-mix(in srgb, #fdf0c7 var(--skin-photo-veil), transparent)),
+    var(--skin-photo);
+  --skin-bg-size: auto, cover;
+  border-style: dashed;
+}
+
+.mg__skin[data-skin='photo']:not(.has-photo)::after {
+  content: '+';
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: 15px;
+  color: rgba(60, 53, 39, 0.45);
 }
 
 .mg__skin.is-on {
