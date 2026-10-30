@@ -11,10 +11,10 @@ import { SKINS, type NoteDb } from '../shared/types';
 import { applyAllSkin, shrinkToDataUrl } from './skin-runtime';
 
 const grid = document.getElementById('grid') as HTMLElement;
-const veilWrap = document.getElementById('veil-wrap') as HTMLElement;
 const veil = document.getElementById('veil') as HTMLInputElement;
 const veilOut = document.getElementById('veil-out') as HTMLOutputElement;
 const btnClose = document.getElementById('btn-close') as HTMLButtonElement;
+const veilTip = document.getElementById('veil-tip') as HTMLElement;
 const tip = document.getElementById('tip') as HTMLElement;
 
 let db: NoteDb = {
@@ -112,7 +112,16 @@ function render() {
   photo.addEventListener('click', () => void pickPhoto());
   grid.appendChild(photo);
 
-  veilWrap.hidden = !hasPhoto;
+  /*
+   * 滑杆常显。没有背景图时它没东西可调，但也不能藏起来 ——
+   * 藏起来等于用户永远不知道有这个能力（航哥就是这么找不到的）。
+   * 置灰 + 一句说明，位置固定，选了图立刻可用。
+   */
+  veil.disabled = !hasPhoto;
+  veilTip.textContent = hasPhoto
+    ? '照片上垫的纸色浓度。越浓字越清楚，照片越淡。'
+    : '先在上面选一张背景图，这里才能调。';
+
   // 正在拖滑杆的时候别回填：一次 db 广播回来会把手指按住的值冲掉
   if (document.activeElement !== veil) {
     const v = db.settings.skinVeil ?? 55;

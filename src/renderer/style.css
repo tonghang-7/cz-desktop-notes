@@ -1291,6 +1291,11 @@ body.sk {
   cursor: pointer;
 }
 
+.sk__veil input[type='range']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .sk__veil output {
   flex: 0 0 42px;
   text-align: right;
