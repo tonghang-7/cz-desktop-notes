@@ -10,7 +10,7 @@
  *
  * 两条路径共用同一套阈值判定和状态机，区别只在 paint 的部分。
  */
-import { DEFAULT_SETTINGS, type Note, type NoteDb } from '../shared/types';
+import { EMPTY_DB, type Note, type NoteDb, type Queue } from '../shared/types';
 import { applyAllSkin } from './skin-runtime';
 
 const stage = document.getElementById('stage') as HTMLElement;
@@ -67,7 +67,15 @@ let foldBroken = false;
  */
 let renderGen = 0;
 
-let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
+/** 这一扇窗负责哪一叠。启动时从 preload 拿（URL 里的 ?q=）。 */
+let myQueueId = '';
+
+/** 当前队列。窗口的队列被删掉时退到第一个，不留一个 null 让每个调用点都得判。 */
+function myQueue(): Queue {
+  return db.queues.find((q) => q.id === myQueueId) ?? db.queues[0]!;
+}
+
+let db: NoteDb = EMPTY_DB;
 
 // 三个状态位的关系：
 //   interacting —— 有指针正按在卡片上
@@ -85,8 +93,8 @@ let activeFinish: ((cancelled: boolean) => void) | null = null;
 
 function applyVars() {
   const root = document.documentElement;
-  root.style.setProperty('--card-w', `${db.settings.cardWidth}px`);
-  root.style.setProperty('--card-h', `${db.settings.cardHeight}px`);
+  root.style.setProperty('--card-w', `${myQueue().cardWidth}px`);
+  root.style.setProperty('--card-h', `${myQueue().cardHeight}px`);
 }
 
 /** 附件文件名 → data URL。渲染是同步的，图片必须提前读进内存。 */
@@ -94,7 +102,7 @@ const imageCache = new Map<string, string>();
 
 /** 把当前用到的图片读成 data URL。读不到的跳过 —— 文件可能被用户手动删了。 */
 async function preloadImages(): Promise<void> {
-  const names = db.notes
+  const names = myQueue().notes
     .map((n) => n.image)
     .filter((v): v is string => typeof v === 'string' && v.length > 0);
   for (const name of names) {
@@ -198,7 +206,7 @@ function startDueTicker() {
   window.setInterval(() => {
     if (interacting || flipping) return;
     const el = stage.querySelector<HTMLElement>('article.card');
-    const top = db.notes[0];
+    const top = myQueue().notes[0];
     if (!el || !top) return;
     paintDue(el, top, Date.now());
   }, 1000);
@@ -227,7 +235,7 @@ function render() {
   }
   pendingRender = false;
 
-  const notes = db.notes;
+  const notes = myQueue().notes;
   countEl.textContent = notes.length ? `${notes.length} 张待办` : '';
 
   stage.innerHTML = '';
@@ -270,8 +278,8 @@ function render() {
     canvas = document.createElement('canvas');
     canvas.className = 'fold-canvas';
     // 比卡片大一圈：折出去的那半张、折痕阴影都要在卡片外画得下。
-    canvas.width = db.settings.cardWidth + FOLD_PAD * 2;
-    canvas.height = db.settings.cardHeight + FOLD_PAD * 2;
+    canvas.width = myQueue().cardWidth + FOLD_PAD * 2;
+    canvas.height = myQueue().cardHeight + FOLD_PAD * 2;
     canvas.setAttribute('layoutsubtree', '');
 
     // canvas 里放的是卡片的第二份副本，供 drawElementImage 抓图。
@@ -313,10 +321,10 @@ function attachGesture(
   const H = fold ? fold.canvas.height : 0;
   const CX = FOLD_PAD;
   const CY = FOLD_PAD;
-  const CW = db.settings.cardWidth;
-  const CH = db.settings.cardHeight;
+  const CW = myQueue().cardWidth;
+  const CH = myQueue().cardHeight;
   // 掀纸路径的阈值与抓取点无关，按下之前就能定。
-  const flipThreshold = Math.max(64, db.settings.cardHeight * FLIP_RATIO);
+  const flipThreshold = Math.max(64, myQueue().cardHeight * FLIP_RATIO);
   // 折叠路径换算成「手指要走的距离」得知道抓取点在哪，按下时才算 —— 见 pointerdown。
   const depthLimit = Math.hypot(CW, CH) * FOLD_DEPTH_RATIO;
   let foldThreshold = 0;
@@ -538,8 +546,8 @@ function attachGesture(
           fold.shot,
           FOLD_PAD,
           FOLD_PAD,
-          db.settings.cardWidth,
-          db.settings.cardHeight
+          myQueue().cardWidth,
+          myQueue().cardHeight
         );
         const off = document.createElement('canvas');
         off.width = W;
@@ -873,13 +881,13 @@ async function handlePaste(e: ClipboardEvent) {
   const name = await uploadImage(file);
   if (!name) return;
 
-  const top = db.notes[0];
+  const top = myQueue().notes[0];
   if (top) {
     await window.api.setImage(top.id, name);
   } else {
     // 库里一张都没有：先建一张再接图，别让粘贴白白落空
     const created = await window.api.createNote('');
-    await window.api.setImage(created.id, name);
+    if (created) await window.api.setImage(created.id, name);
   }
 }
 

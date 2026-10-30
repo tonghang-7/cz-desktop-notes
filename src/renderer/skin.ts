@@ -7,7 +7,7 @@
  * 这个窗只干一件事：把皮肤挑出来。真正的落地在 skin-runtime 里，
  * 三个渲染进程共用同一份，免得各写一遍漂移。
  */
-import { SKINS, type NoteDb } from '../shared/types';
+import { EMPTY_DB, SKINS, type NoteDb } from '../shared/types';
 import { applyAllSkin, shrinkToDataUrl } from './skin-runtime';
 
 const grid = document.getElementById('grid') as HTMLElement;
@@ -17,12 +17,7 @@ const btnClose = document.getElementById('btn-close') as HTMLButtonElement;
 const veilTip = document.getElementById('veil-tip') as HTMLElement;
 const tip = document.getElementById('tip') as HTMLElement;
 
-let db: NoteDb = {
-  version: 1,
-  settings: { hotkey: '', cardWidth: 320, cardHeight: 250, windowX: null, windowY: null, autoLaunch: false, skin: '', skinImage: null, skinVeil: 55 },
-  notes: [],
-  archive: [],
-};
+let db: NoteDb = EMPTY_DB;
 
 /** 预览纸上铺两行假文字：光给一块色块看不出字距和行距。 */
 const SAMPLE = ['这张便签', '写点什么'];

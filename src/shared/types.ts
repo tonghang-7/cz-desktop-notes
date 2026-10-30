@@ -18,12 +18,12 @@ export interface Note {
   image: string | null;
 }
 
+/**
+ * 全局设置。窗口位置和卡片尺寸**不在这里** —— 每个队列一个窗口，
+ * 那些是「这一叠自己的」状态，放在 Queue 上，否则两个窗口会互相踩。
+ */
 export interface Settings {
   hotkey: string;
-  cardWidth: number;
-  cardHeight: number;
-  windowX: number | null;
-  windowY: number | null;
   /** 开机自启。数据目录不在这里 —— 它决定 data.json 在哪，写在自己里面就成了鸡生蛋。 */
   autoLaunch: boolean;
   /**
@@ -59,11 +59,29 @@ export function isSkin(v: unknown): v is string {
   return typeof v === 'string' && SKINS.some((s) => s.id === v);
 }
 
+/**
+ * 一条任务线：一个队列 = 一个便签窗 + 一叠便签。
+ *
+ * 多开窗口是这套东西的核心用法 —— 工作、学习、社团各开一个，
+ * 每个窗口只处理自己那一叠，互不打扰。
+ */
+export interface Queue {
+  id: string;
+  /** 显示在窗口标题和托盘菜单里，用户自己起，比如「工作」 */
+  name: string;
+  notes: Note[];
+  archive: Note[];
+  /** 这个窗口上次的位置。多窗口各自记，不然两个窗口会叠在同一个点上 */
+  windowX: number | null;
+  windowY: number | null;
+  cardWidth: number;
+  cardHeight: number;
+}
+
 export interface NoteDb {
   version: number;
   settings: Settings;
-  notes: Note[];
-  archive: Note[];
+  queues: Queue[];
 }
 
 export const CARD_MIN_W = 220;
@@ -76,15 +94,46 @@ export const WINDOW_PAD = 22;
 
 export const DEFAULT_SETTINGS: Settings = {
   hotkey: 'Control+Alt+Space',
-  cardWidth: 320,
-  cardHeight: 250,
-  windowX: null,
-  windowY: null,
   autoLaunch: false,
   skin: '',
   skinImage: null,
   skinVeil: 55,
 };
+
+export const DEFAULT_QUEUE_SIZE = { cardWidth: 320, cardHeight: 250 };
+
+/**
+ * 渲染进程在拿到真数据之前的占位。
+ * 三个窗口都要一个初值，各自手写会漂 —— 尤其是队列字段以后再加的时候。
+ */
+export const EMPTY_DB: NoteDb = {
+  version: 2,
+  settings: { ...DEFAULT_SETTINGS },
+  queues: [
+    {
+      id: '',
+      name: '默认',
+      notes: [],
+      archive: [],
+      windowX: null,
+      windowY: null,
+      ...DEFAULT_QUEUE_SIZE,
+    },
+  ],
+};
+
+/** 新建队列时的默认值。位置留空由系统摆放，尺寸沿用默认那张纸。 */
+export function newQueueFields(name: string) {
+  return {
+    name,
+    notes: [],
+    archive: [],
+    windowX: null,
+    windowY: null,
+    cardWidth: DEFAULT_QUEUE_SIZE.cardWidth,
+    cardHeight: DEFAULT_QUEUE_SIZE.cardHeight,
+  };
+}
 
 export const HOTKEY_CANDIDATES = [
   'Control+Alt+Space',

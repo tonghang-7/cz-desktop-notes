@@ -7,16 +7,19 @@
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_QUEUE_SIZE,
   clampCardSize,
   isSkin,
+  newQueueFields,
   type Note,
   type NoteColor,
   type NoteDb,
+  type Queue,
   type Settings,
 } from '../shared/types';
 
 /** 当前数据结构版本。改数据结构就 +1，并在 MIGRATIONS 里补一条升级路径。 */
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export type Migration = (db: Record<string, unknown>) => Record<string, unknown>;
 
@@ -29,11 +32,49 @@ export type Migration = (db: Record<string, unknown>) => Record<string, unknown>
  * 也不能把用户的字段悄悄丢掉。
  */
 export const MIGRATIONS: Record<number, Migration> = {
-  // 例：1: (db) => ({ ...db, pinned: false }),   // v1 → v2
+  /**
+   * v1 → v2：单叠变成多队列（一个队列对一个便签窗）。
+   *
+   * 老的 notes / archive 整体包进一个叫「默认」的队列；
+   * windowX / windowY / cardWidth / cardHeight 从 settings 挪进队列 ——
+   * 它们本来就是「这一扇窗」的状态，多窗口之后放在全局会互相踩。
+   *
+   * 注意用 delete 而不是赋 undefined：parseDb 的 dropped 检查看的是 key 存不存在，
+   * 留着 `notes: undefined` 这种键会被判成「有字段没被接收」。
+   */
+  1: (db) => {
+    const s = (db.settings && typeof db.settings === 'object' ? db.settings : {}) as Record<
+      string,
+      unknown
+    >;
+    const queue: Queue = {
+      id: randomUUID(),
+      name: '默认',
+      notes: Array.isArray(db.notes) ? (db.notes as Note[]) : [],
+      archive: Array.isArray(db.archive) ? (db.archive as Note[]) : [],
+      windowX: typeof s.windowX === 'number' ? s.windowX : null,
+      windowY: typeof s.windowY === 'number' ? s.windowY : null,
+      cardWidth: typeof s.cardWidth === 'number' ? s.cardWidth : DEFAULT_QUEUE_SIZE.cardWidth,
+      cardHeight: typeof s.cardHeight === 'number' ? s.cardHeight : DEFAULT_QUEUE_SIZE.cardHeight,
+    };
+
+    const out: Record<string, unknown> = { ...db, queues: [queue] };
+    delete out.notes;
+    delete out.archive;
+
+    const settings: Record<string, unknown> = { ...s };
+    delete settings.windowX;
+    delete settings.windowY;
+    delete settings.cardWidth;
+    delete settings.cardHeight;
+    out.settings = settings;
+
+    return out;
+  },
 };
 
 /** NoteDb 允许出现的顶层键。normalizeDb 按白名单重建对象，多出来的键视为「没接住」。 */
-const KNOWN_KEYS = new Set(['version', 'settings', 'notes', 'archive']);
+const KNOWN_KEYS = new Set(['version', 'settings', 'queues']);
 
 export type LoadState =
   /** 目录里还没有 data.json，第一次启动 */
@@ -50,7 +91,11 @@ export type LoadState =
 const COLORS: NoteColor[] = ['amber', 'rose', 'sky', 'mint', 'violet'];
 
 export function emptyDb(): NoteDb {
-  return { version: DB_VERSION, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
+  return {
+    version: DB_VERSION,
+    settings: { ...DEFAULT_SETTINGS },
+    queues: [{ id: randomUUID(), ...newQueueFields('默认') }],
+  };
 }
 
 export function isColor(v: unknown): v is NoteColor {
@@ -77,18 +122,37 @@ function clampVeil(v: unknown): number {
   return Math.min(100, Math.max(0, Math.round(v)));
 }
 
-function normalizeSettings(raw: unknown): Settings {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+function normalizeQueue(raw: unknown): Queue | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
   const size = clampCardSize(
-    typeof r.cardWidth === 'number' ? r.cardWidth : DEFAULT_SETTINGS.cardWidth,
-    typeof r.cardHeight === 'number' ? r.cardHeight : DEFAULT_SETTINGS.cardHeight
+    typeof r.cardWidth === 'number' ? r.cardWidth : DEFAULT_QUEUE_SIZE.cardWidth,
+    typeof r.cardHeight === 'number' ? r.cardHeight : DEFAULT_QUEUE_SIZE.cardHeight
   );
+  const notes = Array.isArray(r.notes)
+    ? r.notes.map((n) => normalizeNote(n)).filter((n): n is Note => n !== null)
+    : [];
+  const archive = Array.isArray(r.archive)
+    ? r.archive.map((n) => normalizeNote(n)).filter((n): n is Note => n !== null)
+    : [];
+  const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim() : '未命名';
+
   return {
-    hotkey: typeof r.hotkey === 'string' && r.hotkey ? r.hotkey : DEFAULT_SETTINGS.hotkey,
-    cardWidth: size.cardWidth,
-    cardHeight: size.cardHeight,
+    id: typeof r.id === 'string' && r.id ? r.id : randomUUID(),
+    name,
+    notes,
+    archive,
     windowX: typeof r.windowX === 'number' ? r.windowX : null,
     windowY: typeof r.windowY === 'number' ? r.windowY : null,
+    cardWidth: size.cardWidth,
+    cardHeight: size.cardHeight,
+  };
+}
+
+function normalizeSettings(raw: unknown): Settings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    hotkey: typeof r.hotkey === 'string' && r.hotkey ? r.hotkey : DEFAULT_SETTINGS.hotkey,
     autoLaunch: typeof r.autoLaunch === 'boolean' ? r.autoLaunch : DEFAULT_SETTINGS.autoLaunch,
     // 手改过 data.json 写了不存在的皮肤也不该崩：匹配不到 CSS 规则就是素纸
     skin: isSkin(r.skin) ? r.skin : DEFAULT_SETTINGS.skin,
@@ -101,13 +165,12 @@ function normalizeSettings(raw: unknown): Settings {
 
 export function normalizeDb(raw: unknown): NoteDb {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const notes = Array.isArray(r.notes)
-    ? r.notes.map((n) => normalizeNote(n)).filter((n): n is Note => n !== null)
+  let queues = Array.isArray(r.queues)
+    ? r.queues.map((q) => normalizeQueue(q)).filter((q): q is Queue => q !== null)
     : [];
-  const archive = Array.isArray(r.archive)
-    ? r.archive.map((n) => normalizeNote(n)).filter((n): n is Note => n !== null)
-    : [];
-  return { version: DB_VERSION, settings: normalizeSettings(r.settings), notes, archive };
+  // 一个队列都没有就补一个：没有队列就没有窗口，程序会变成一片空白
+  if (queues.length === 0) queues = [{ id: randomUUID(), ...newQueueFields('默认') }];
+  return { version: DB_VERSION, settings: normalizeSettings(r.settings), queues };
 }
 
 function readVersion(raw: Record<string, unknown>): number {
@@ -127,14 +190,17 @@ export function migrateDb(
 ): { db: Record<string, unknown>; from: number } {
   const from = readVersion(raw);
   let version = from;
-  const db = { ...raw };
+  // 整体替换而不是 Object.assign 合并：迁移函数返回的是「新结构全貌」，
+  // 合并会把已经被 delete 掉的旧字段（v1 的顶层 notes / archive）又留在对象上，
+  // 后面那道「有没有字段没被接收」的检查就会把它判成损坏。
+  let db = { ...raw };
   while (version < targetVersion) {
     const step = migrations[version];
     if (!step) throw new Error(`缺少 v${version} → v${version + 1} 的迁移`);
     const next = step(db);
     version += 1;
     next.version = version;
-    Object.assign(db, next);
+    db = next;
   }
   return { db, from };
 }

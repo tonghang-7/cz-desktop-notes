@@ -6,7 +6,14 @@
  *
  * 唯一需要小心的是编辑器：重建 DOM 会让 textarea 从文档里移除并触发 blur。
  */
-import { DEFAULT_SETTINGS, SKINS, type Note, type NoteColor, type NoteDb } from '../shared/types';
+import {
+  EMPTY_DB,
+  SKINS,
+  type Note,
+  type NoteColor,
+  type NoteDb,
+  type Queue,
+} from '../shared/types';
 import { applyAllSkin } from './skin-runtime';
 
 const COLORS: { key: NoteColor; hex: string }[] = [
@@ -33,6 +40,7 @@ const sizeWOut = document.getElementById('size-w-out') as HTMLOutputElement;
 const sizeHOut = document.getElementById('size-h-out') as HTMLOutputElement;
 const hint = document.getElementById('hint') as HTMLElement;
 const cfgSkinName = document.getElementById('cfg-skin-name') as HTMLElement;
+const queuesEl = document.getElementById('queues') as HTMLElement;
 const cfgAutoLaunch = document.getElementById('cfg-autolaunch') as HTMLInputElement;
 const cfgDataDir = document.getElementById('cfg-datadir') as HTMLElement;
 const btnDataDir = document.getElementById('btn-datadir') as HTMLButtonElement;
@@ -55,7 +63,17 @@ type UpdateInfo = {
 };
 let updateInfo: UpdateInfo | null = null;
 
-let db: NoteDb = { version: 1, settings: { ...DEFAULT_SETTINGS }, notes: [], archive: [] };
+/**
+ * 管理界面上「正在看的是哪一叠」。
+ * 便签窗靠 URL 认领自己的队列，管理窗没有那个身份，只能自己记一个。
+ */
+let currentQueueId = '';
+
+function cur(): Queue {
+  return db.queues.find((q) => q.id === currentQueueId) ?? db.queues[0]!;
+}
+
+let db: NoteDb = EMPTY_DB;
 let selectedId: string | null = null;
 // 编辑器当前渲染的是哪张卡。同一个 id 就只刷新元信息，不重建 DOM ——
 // 重建会让 textarea 失焦、光标跳回开头，打到一半的字就没法接着打了。
@@ -90,9 +108,9 @@ function clearDropMarks() {
 
 function renderList() {
   list.innerHTML = '';
-  listEmpty.hidden = db.notes.length > 0;
+  listEmpty.hidden = cur().notes.length > 0;
 
-  db.notes.forEach((note, index) => {
+  cur().notes.forEach((note, index) => {
     const li = document.createElement('li');
     li.className = 'it';
     if (note.id === selectedId) li.classList.add('is-active');
@@ -161,14 +179,14 @@ function renderList() {
       const rect = li.getBoundingClientRect();
       const after = e.clientY > rect.top + rect.height / 2;
       // 先把拖动项从列表里摘出去再插，直接按原索引插入会在「往后移」时错一位
-      const ids = db.notes.map((n) => n.id).filter((id) => id !== draggingId);
+      const ids = cur().notes.map((n) => n.id).filter((id) => id !== draggingId);
       const idx = ids.indexOf(note.id);
       ids.splice(after ? idx + 1 : idx, 0, draggingId);
       draggingId = null;
       clearDropMarks();
 
       flushCurrent();
-      void window.api.reorderNotes(ids);
+      void window.api.reorderNotes(ids, currentQueueId);
     });
 
     list.appendChild(li);
@@ -245,11 +263,11 @@ function updateEditorMeta(note: Note) {
 
   const pos = editor.querySelector('[data-role="pos"]');
   if (!pos) return;
-  const idx = db.notes.findIndex((n) => n.id === note.id);
+  const idx = cur().notes.findIndex((n) => n.id === note.id);
   if (idx === 0) {
     pos.textContent = '第 1 张 · 最先显示';
   } else if (idx > 0) {
-    pos.textContent = `第 ${idx + 1} 张 · 还剩 ${db.notes.length - idx} 张在它后面`;
+    pos.textContent = `第 ${idx + 1} 张 · 还剩 ${cur().notes.length - idx} 张在它后面`;
   } else {
     pos.textContent = '';
   }
@@ -259,7 +277,7 @@ function updateEditorMeta(note: Note) {
 }
 
 function renderEditor() {
-  const note = db.notes.find((n) => n.id === selectedId) ?? null;
+  const note = cur().notes.find((n) => n.id === selectedId) ?? null;
 
   if (!note) {
     if (renderedEditorId !== '__empty__') {
@@ -302,7 +320,7 @@ function renderEditor() {
     btn.dataset.colorKey = c.key;
     btn.addEventListener('click', () => {
       if (!selectedId) return;
-      void window.api.updateNote(selectedId, { color: c.key });
+      void window.api.updateNote(selectedId, { color: c.key }, currentQueueId);
     });
     colors.appendChild(btn);
   }
@@ -341,7 +359,7 @@ function renderEditor() {
   imgDel.className = 'ed__imgdel';
   imgDel.type = 'button';
   imgDel.textContent = '移除图片';
-  imgDel.addEventListener('click', () => void window.api.setImage(note.id, null));
+  imgDel.addEventListener('click', () => void window.api.setImage(note.id, null, currentQueueId));
 
   imgWrap.append(imgEl, imgDel);
 
@@ -367,7 +385,7 @@ function renderEditor() {
   dueInput.min = toLocalInput(Date.now());
 
   const applyDue = (at: number | null) => {
-    void window.api.setDue(note.id, at);
+    void window.api.setDue(note.id, at, currentQueueId);
     dueVal.textContent = fmtDue(at);
   };
 
@@ -407,10 +425,10 @@ function renderEditor() {
 }
 
 function renderArchive() {
-  archiveCount.textContent = String(db.archive.length);
+  archiveCount.textContent = String(cur().archive.length);
   archiveList.innerHTML = '';
 
-  for (const note of db.archive) {
+  for (const note of cur().archive) {
     const li = document.createElement('li');
     li.className = 'ar';
 
@@ -426,12 +444,12 @@ function renderArchive() {
     const restore = document.createElement('button');
     restore.className = 'ar__btn';
     restore.textContent = '放回';
-    restore.addEventListener('click', () => void window.api.restoreNote(note.id));
+    restore.addEventListener('click', () => void window.api.restoreNote(note.id, currentQueueId));
 
     const del = document.createElement('button');
     del.className = 'ar__btn is-danger';
     del.textContent = '删除';
-    del.addEventListener('click', () => void window.api.deleteArchived(note.id));
+    del.addEventListener('click', () => void window.api.deleteArchived(note.id, currentQueueId));
 
     li.append(text, time, restore, del);
     archiveList.appendChild(li);
@@ -450,14 +468,126 @@ function syncSkinName() {
 function syncSize() {
   // 用户正在拖滑块时不回写，否则输入框的值会在拖动过程中被自己覆盖
   if (document.activeElement === sizeW || document.activeElement === sizeH) return;
-  sizeW.value = String(db.settings.cardWidth);
-  sizeH.value = String(db.settings.cardHeight);
-  sizeWOut.textContent = String(db.settings.cardWidth);
-  sizeHOut.textContent = String(db.settings.cardHeight);
+  // 卡片尺寸是每个队列自己的 —— 换队列后滑块要跟着换
+  sizeW.value = String(cur().cardWidth);
+  sizeH.value = String(cur().cardHeight);
+  sizeWOut.textContent = String(cur().cardWidth);
+  sizeHOut.textContent = String(cur().cardHeight);
+}
+
+/**
+ * 队列条：一条任务线一个 chip，末尾一个 +。
+ * 单击切换、双击改名、右键删除 —— 三个动作都只动当前这一叠，不碰别的窗口。
+ */
+function renderQueues() {
+  queuesEl.innerHTML = '';
+
+  for (const q of db.queues) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mg__q';
+    b.textContent = q.name;
+    b.title = `${q.notes.length} 张待办 · 双击改名 · 右键删除`;
+    if (q.id === cur().id) b.classList.add('is-on');
+    b.addEventListener('click', () => switchQueue(q.id));
+    b.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      startRenameQueue(q.id, b);
+    });
+    b.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      void removeQueue(q.id);
+    });
+    queuesEl.appendChild(b);
+  }
+
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'mg__q mg__q--add';
+  add.textContent = '+';
+  add.title = '新建队列，会同时打开一个新的便签窗口';
+  add.addEventListener('click', () => void addQueue());
+  queuesEl.appendChild(add);
+}
+
+function switchQueue(id: string) {
+  if (id === cur().id) return;
+  // 先把正在编辑的那张存下去，否则切队列会把最后几个字丢掉
+  flushCurrent();
+  currentQueueId = id;
+  selectedId = cur().notes[0]?.id ?? null;
+  renderedEditorId = null;
+  render();
+}
+
+async function addQueue() {
+  const q = await window.api.createQueue(`队列 ${db.queues.length + 1}`);
+  db = await window.api.getDb();
+  currentQueueId = q.id;
+  selectedId = cur().notes[0]?.id ?? null;
+  renderedEditorId = null;
+  render();
+}
+
+function startRenameQueue(id: string, chip: HTMLElement) {
+  const q = db.queues.find((x) => x.id === id);
+  if (!q) return;
+
+  const input = document.createElement('input');
+  input.className = 'mg__q-input';
+  input.value = q.name;
+  chip.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let settled = false;
+  const done = (save: boolean) => {
+    if (settled) return;
+    settled = true;
+    const v = input.value.trim();
+    if (save && v && v !== q.name) void window.api.renameQueue(id, v);
+    render();
+  };
+  input.addEventListener('blur', () => done(true));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      done(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      done(false);
+    }
+  });
+}
+
+async function removeQueue(id: string) {
+  const q = db.queues.find((x) => x.id === id);
+  if (!q) return;
+
+  const total = q.notes.length + q.archive.length;
+  // 删队列会把里面的便签和附件一起删掉，不是移进回收站 —— 必须问清楚
+  const msg = total
+    ? `删除队列「${q.name}」？\n\n里面的 ${q.notes.length} 张待办和 ${q.archive.length} 张归档会一起删除，不能撤销。`
+    : `删除空队列「${q.name}」？`;
+  if (!window.confirm(msg)) return;
+
+  const r = await window.api.deleteQueue(id);
+  if (!r.ok) {
+    cfgTip.textContent = r.reason ?? '删不掉';
+    return;
+  }
+  db = await window.api.getDb();
+  if (currentQueueId === id) {
+    currentQueueId = db.queues[0]!.id;
+    selectedId = cur().notes[0]?.id ?? null;
+    renderedEditorId = null;
+  }
+  render();
 }
 
 function render() {
   void applyAllSkin(db);
+  renderQueues();
   renderList();
   renderEditor();
   renderArchive();
@@ -475,7 +605,7 @@ function flashSaved() {
 
 async function commitText(id: string, text: string) {
   if (!id) return;
-  await window.api.updateNote(id, { text });
+  await window.api.updateNote(id, { text }, currentQueueId);
   flashSaved();
 }
 
@@ -522,11 +652,11 @@ function select(id: string) {
 async function completeNote(id: string) {
   flushCurrent();
 
-  const idx = db.notes.findIndex((n) => n.id === id);
+  const idx = cur().notes.findIndex((n) => n.id === id);
   // 摘掉后选中它后面那张；没有了选前面；前后都没有就清空选中
-  const fallback = db.notes[idx + 1]?.id ?? db.notes[idx - 1]?.id ?? null;
+  const fallback = cur().notes[idx + 1]?.id ?? cur().notes[idx - 1]?.id ?? null;
 
-  await window.api.completeNote(id);
+  await window.api.completeNote(id, currentQueueId);
 
   if (selectedId === id) {
     selectedId = fallback;
@@ -539,8 +669,9 @@ async function completeNote(id: string) {
 async function createNew() {
   flushCurrent();
 
-  const note = await window.api.createNote('');
+  const note = await window.api.createNote('', undefined, currentQueueId);
   db = await window.api.getDb();
+  if (!note) return;
   selectedId = note.id;
   renderedEditorId = null;
   render();
@@ -674,7 +805,7 @@ function onSizeInput() {
   if (sizeTimer) window.clearTimeout(sizeTimer);
   sizeTimer = window.setTimeout(() => {
     sizeTimer = null;
-    void window.api.updateSettings({ cardWidth: w, cardHeight: h });
+    void window.api.setQueueBounds(currentQueueId, { cardWidth: w, cardHeight: h });
   }, 140);
 }
 
@@ -862,7 +993,7 @@ function wire() {
       try {
         const buf = await file.arrayBuffer();
         const name = await window.api.saveImage(buf, file.type || 'image/png');
-        await window.api.setImage(id, name);
+        await window.api.setImage(id, name, currentQueueId);
       } catch (err) {
         console.warn('[paste] 图片存盘失败', err);
       }
@@ -870,7 +1001,7 @@ function wire() {
   });
 
   archiveEl.addEventListener('toggle', () => {
-    if (archiveEl.open && db.archive.length === 0) {
+    if (archiveEl.open && cur().archive.length === 0) {
       archiveEl.open = false;
     }
   });
@@ -878,7 +1009,8 @@ function wire() {
 
 async function boot() {
   db = await window.api.getDb();
-  selectedId = db.notes[0]?.id ?? null;
+  currentQueueId = db.queues[0]!.id;
+  selectedId = cur().notes[0]?.id ?? null;
   await applyAllSkin(db);
   render();
   wire();
@@ -910,9 +1042,9 @@ async function boot() {
     db = next;
     // 选中的卡片可能被别处删了或进了归档。只有它两张列表里都找不到时才换选中项，
     // 否则每次 db 变化都会把选中重置回第一张。进了归档的保持选中，编辑器显示空提示。
-    if (selectedId && !db.notes.some((n) => n.id === selectedId)) {
-      if (!db.archive.some((n) => n.id === selectedId)) {
-        selectedId = db.notes[0]?.id ?? null;
+    if (selectedId && !cur().notes.some((n) => n.id === selectedId)) {
+      if (!cur().archive.some((n) => n.id === selectedId)) {
+        selectedId = cur().notes[0]?.id ?? null;
         renderedEditorId = null;
       }
     }

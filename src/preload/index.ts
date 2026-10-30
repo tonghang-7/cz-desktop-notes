@@ -1,28 +1,65 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Note, NoteColor, NoteDb, Settings } from '../shared/types';
+import type { Note, NoteColor, NoteDb, Queue, Settings } from '../shared/types';
+
+/**
+ * 这一扇窗属于哪个队列。
+ *
+ * 便签窗的 URL 带 `?q=<queueId>`（主进程建窗时塞的），preload 在这里读一次，
+ * 之后所有便签操作自动带上 —— 渲染层的调用点一行都不用改。
+ * 管理窗没有 q（它要管所有队列），那边显式传。
+ */
+const pageQueue = (() => {
+  try {
+    return new URLSearchParams(location.search).get('q') ?? '';
+  } catch {
+    return '';
+  }
+})();
+
+const pick = (explicit?: string) => explicit ?? pageQueue;
 
 const api = {
   getDb: (): Promise<NoteDb> => ipcRenderer.invoke('db:get'),
-  createNote: (text: string, color?: NoteColor): Promise<Note> =>
-    ipcRenderer.invoke('note:create', text, color),
-  updateNote: (id: string, patch: { text?: string; color?: NoteColor }): Promise<void> =>
-    ipcRenderer.invoke('note:update', id, patch),
-  completeNote: (id: string): Promise<void> => ipcRenderer.invoke('note:complete', id),
-  restoreNote: (id: string): Promise<void> => ipcRenderer.invoke('note:restore', id),
-  deleteArchived: (id: string): Promise<void> => ipcRenderer.invoke('archive:delete', id),
-  clearArchive: (): Promise<void> => ipcRenderer.invoke('archive:clear'),
-  reorderNotes: (ids: string[]): Promise<void> => ipcRenderer.invoke('notes:reorder', ids),
+  /** queueId 省略时用本窗口自己的那个（见 pageQueue）。 */
+  createNote: (text: string, color?: NoteColor, queueId?: string): Promise<Note | null> =>
+    ipcRenderer.invoke('note:create', pick(queueId), text, color),
+  updateNote: (
+    id: string,
+    patch: { text?: string; color?: NoteColor },
+    queueId?: string
+  ): Promise<void> => ipcRenderer.invoke('note:update', pick(queueId), id, patch),
+  completeNote: (id: string, queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('note:complete', pick(queueId), id),
+  restoreNote: (id: string, queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('note:restore', pick(queueId), id),
+  deleteArchived: (id: string, queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('archive:delete', pick(queueId), id),
+  clearArchive: (queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('archive:clear', pick(queueId)),
+  reorderNotes: (ids: string[], queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('notes:reorder', pick(queueId), ids),
   updateSettings: (patch: Partial<Settings>): Promise<Settings> =>
     ipcRenderer.invoke('settings:update', patch),
+  /** 本窗口所属的队列 id（便签窗用；管理窗是空串） */
+  myQueueId: (): string => pageQueue,
+  createQueue: (name: string): Promise<Queue> => ipcRenderer.invoke('queue:create', name),
+  renameQueue: (id: string, name: string): Promise<void> =>
+    ipcRenderer.invoke('queue:rename', id, name),
+  deleteQueue: (id: string): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke('queue:delete', id),
+  setQueueBounds: (
+    id: string,
+    patch: { cardWidth?: number; cardHeight?: number }
+  ): Promise<Queue | null> => ipcRenderer.invoke('queue:bounds', id, patch),
   /** dueAt 传 null 表示清掉时限 */
-  setDue: (id: string, dueAt: number | null): Promise<void> =>
-    ipcRenderer.invoke('note:due', id, dueAt),
+  setDue: (id: string, dueAt: number | null, queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('note:due', pick(queueId), id, dueAt),
   /** 把图片写进附件目录，返回文件名 */
   saveImage: (data: ArrayBuffer, mime: string): Promise<string> =>
     ipcRenderer.invoke('image:save', data, mime),
   /** fileName 传 null 表示去掉这张卡的图 */
-  setImage: (id: string, fileName: string | null): Promise<void> =>
-    ipcRenderer.invoke('note:image', id, fileName),
+  setImage: (id: string, fileName: string | null, queueId?: string): Promise<void> =>
+    ipcRenderer.invoke('note:image', pick(queueId), id, fileName),
   /** 读附件，拿 data URL（同源，canvas 能和 drawElementImage 一起抓） */
   readImage: (fileName: string): Promise<string | null> =>
     ipcRenderer.invoke('image:read', fileName),

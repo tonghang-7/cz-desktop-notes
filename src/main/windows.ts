@@ -1,13 +1,16 @@
 import { BrowserWindow, screen, shell } from 'electron';
 import path from 'node:path';
-import { getDb, updateSettings } from './store';
-import { windowSizeFor } from '../shared/types';
+import { getDb, setQueueBounds } from './store';
+import { windowSizeFor, type Queue } from '../shared/types';
 import { trace } from './perf';
 
-let notepad: BrowserWindow | null = null;
+/** 一个队列一扇便签窗。多个队列 = 多条任务线并行，窗口互不干扰。 */
+const notepads = new Map<string, BrowserWindow>();
 let manager: BrowserWindow | null = null;
 let skinWin: BrowserWindow | null = null;
 let quitting = false;
+/** 最后聚焦的那个便签窗。剪贴板捕获要贴进「用户正在看的那一叠」。 */
+let lastActiveQueueId = '';
 
 const preloadPath = () => path.join(__dirname, '../preload/index.js');
 
@@ -25,30 +28,39 @@ function isVisibleOnSomeDisplay(x: number, y: number, w: number, h: number) {
   });
 }
 
-function initialPosition(width: number, height: number) {
-  const { settings } = getDb();
+function queueById(id: string): Queue | null {
+  return getDb().queues.find((q) => q.id === id) ?? null;
+}
+
+function initialPosition(q: Queue, width: number, height: number) {
   if (
-    settings.windowX !== null &&
-    settings.windowY !== null &&
-    isVisibleOnSomeDisplay(settings.windowX, settings.windowY, width, height)
+    q.windowX !== null &&
+    q.windowY !== null &&
+    isVisibleOnSomeDisplay(q.windowX, q.windowY, width, height)
   ) {
-    return { x: settings.windowX, y: settings.windowY };
+    return { x: q.windowX, y: q.windowY };
   }
   const area = screen.getPrimaryDisplay().workArea;
+  // 没记录过位置的队列按已有窗口数错开摆 —— 否则新开的那扇正好压在旧窗口上，
+  // 用户会以为「怎么点了没反应」。
+  const step = notepads.size * 30;
   return {
-    x: Math.round(area.x + area.width - width - 48),
-    y: Math.round(area.y + (area.height - height) / 2),
+    x: Math.round(area.x + area.width - width - 48 - step),
+    y: Math.round(area.y + (area.height - height) / 2 - step),
   };
 }
 
-export function createNotepad(): BrowserWindow {
-  if (notepad && !notepad.isDestroyed()) return notepad;
+export function createQueueWindow(queueId: string): BrowserWindow | null {
+  const existing = notepads.get(queueId);
+  if (existing && !existing.isDestroyed()) return existing;
 
-  const { settings } = getDb();
-  const { width, height } = windowSizeFor(settings.cardWidth, settings.cardHeight);
-  const pos = initialPosition(width, height);
+  const q = queueById(queueId);
+  if (!q) return null;
 
-  notepad = new BrowserWindow({
+  const { width, height } = windowSizeFor(q.cardWidth, q.cardHeight);
+  const pos = initialPosition(q, width, height);
+
+  const win = new BrowserWindow({
     width,
     height,
     x: pos.x,
@@ -64,6 +76,7 @@ export function createNotepad(): BrowserWindow {
     alwaysOnTop: true,
     hasShadow: false,
     show: false,
+    title: `苍泽便签 · ${q.name}`,
     webPreferences: {
       preload: preloadPath(),
       contextIsolation: true,
@@ -73,85 +86,153 @@ export function createNotepad(): BrowserWindow {
     },
   });
 
-  notepad.setAlwaysOnTop(true, 'floating');
-  notepad.loadFile(path.join(__dirname, '../renderer/notepad.html'));
-  trace('notepad window created', `${width}x${height}`);
+  notepads.set(queueId, win);
+  if (!lastActiveQueueId) lastActiveQueueId = queueId;
 
-  notepad.webContents.on('did-finish-load', () => trace('notepad DOM ready'));
+  win.setAlwaysOnTop(true, 'floating');
+  // query 里的 q 就是这一扇窗的身份：preload 读它，之后所有便签操作都自动带上，
+  // 渲染层的调用点一行都不用改。
+  win.loadFile(path.join(__dirname, '../renderer/notepad.html'), { query: { q: queueId } });
+  trace('notepad window created', `${q.name} ${width}x${height}`);
 
-  notepad.webContents.on('console-message', (event) => {
+  win.webContents.on('did-finish-load', () => trace('notepad DOM ready', q.name));
+  win.webContents.on('console-message', (event) => {
     const raw = event as unknown as { message?: string; level?: string };
-    console.log('[renderer]', raw.level ?? '', raw.message ?? '');
+    console.log(`[renderer:${q.name}]`, raw.level ?? '', raw.message ?? '');
   });
-  notepad.webContents.on('preload-error', (_e, file, err) => {
+  win.webContents.on('preload-error', (_e, file, err) => {
     console.error('[preload-error]', file, err);
   });
-  notepad.webContents.on('did-fail-load', (_e, code, desc, url) => {
+  win.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error('[did-fail-load]', code, desc, url);
   });
-  notepad.webContents.on('render-process-gone', (_e, details) => {
+  win.webContents.on('render-process-gone', (_e, details) => {
     console.error('[render-process-gone]', details.reason, 'exit=', details.exitCode);
   });
 
-  notepad.on('close', (e) => {
+  win.on('focus', () => {
+    lastActiveQueueId = queueId;
+  });
+
+  win.on('close', (e) => {
     if (quitting) return;
     e.preventDefault();
-    notepad?.hide();
+    win.hide();
   });
 
-  notepad.on('moved', () => {
-    if (!notepad || notepad.isDestroyed()) return;
-    const b = notepad.getBounds();
-    updateSettings({ windowX: b.x, windowY: b.y });
+  // 位置按队列各记一份 —— 放在全局的话两个窗口会互相把对方拽到同一个点上
+  win.on('moved', () => {
+    if (win.isDestroyed()) return;
+    const b = win.getBounds();
+    setQueueBounds(queueId, { windowX: b.x, windowY: b.y });
   });
 
-  notepad.on('closed', () => {
-    notepad = null;
+  win.on('closed', () => {
+    notepads.delete(queueId);
+    if (lastActiveQueueId === queueId) {
+      lastActiveQueueId = [...notepads.keys()][0] ?? '';
+    }
   });
 
-  return notepad;
+  return win;
 }
 
+/** 所有便签窗一起出现。多开的意义就是「同时进行」—— 一起看、一起收。 */
 export function showNotepad() {
   const t0 = performance.now();
-  const win = createNotepad();
-  const reveal = () => {
-    if (win.isDestroyed()) return;
-    if (!win.isVisible()) win.show();
-    win.focus();
-    win.webContents.send('notepad:shown');
-    trace('notepad revealed', `call->paint ${(performance.now() - t0).toFixed(1)}ms`);
-  };
-  if (win.webContents.isLoading()) {
-    win.webContents.once('did-finish-load', reveal);
-  } else {
-    reveal();
+  const queues = getDb().queues;
+  for (const q of queues) {
+    const win = createQueueWindow(q.id);
+    if (!win) continue;
+    const reveal = () => {
+      if (win.isDestroyed()) return;
+      if (!win.isVisible()) win.show();
+      win.webContents.send('notepad:shown');
+    };
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', reveal);
+    else reveal();
   }
+
+  const focusTarget = notepads.get(lastActiveQueueId) ?? [...notepads.values()][0];
+  if (focusTarget && !focusTarget.isDestroyed()) focusTarget.focus();
+  trace('notepad revealed', `call->paint ${(performance.now() - t0).toFixed(1)}ms`);
 }
 
 export function hideNotepad() {
-  if (notepad && !notepad.isDestroyed()) notepad.hide();
+  for (const win of notepads.values()) {
+    if (!win.isDestroyed()) win.hide();
+  }
 }
 
 export function toggleNotepad() {
-  const win = createNotepad();
-  if (win.isVisible() && win.isFocused()) {
-    win.hide();
+  const wins = [...notepads.values()].filter((w) => !w.isDestroyed());
+  const anyVisible = wins.some((w) => w.isVisible());
+  if (anyVisible && wins.some((w) => w.isFocused())) {
+    hideNotepad();
     return;
   }
   showNotepad();
 }
 
-export function isNotepadVisible() {
-  return !!notepad && !notepad.isDestroyed() && notepad.isVisible();
+/** 新建队列后单独开它，不惊动已经在看的那几扇。 */
+export function openQueueWindow(queueId: string) {
+  const win = createQueueWindow(queueId);
+  if (!win) return;
+  lastActiveQueueId = queueId;
+  const reveal = () => {
+    if (win.isDestroyed()) return;
+    if (!win.isVisible()) win.show();
+    win.focus();
+    win.webContents.send('notepad:shown');
+  };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', reveal);
+  else reveal();
 }
 
+export function closeQueueWindow(queueId: string) {
+  const win = notepads.get(queueId);
+  if (win && !win.isDestroyed()) win.destroy();
+  notepads.delete(queueId);
+}
+
+export function retitleQueueWindow(queueId: string) {
+  const win = notepads.get(queueId);
+  const q = queueById(queueId);
+  if (win && !win.isDestroyed() && q) win.setTitle(`苍泽便签 · ${q.name}`);
+}
+
+/** 某一叠的卡片尺寸变了，只调整它自己那扇窗。 */
+export function applyQueueSize(queueId: string) {
+  const win = notepads.get(queueId);
+  const q = queueById(queueId);
+  if (!win || win.isDestroyed() || !q) return;
+  const { width, height } = windowSizeFor(q.cardWidth, q.cardHeight);
+  const b = win.getBounds();
+  win.setBounds({ x: b.x, y: b.y, width, height });
+}
+
+/** 皮肤 / 背景图这类全局视觉变了：所有便签窗重算尺寸没必要，但要让它们重画。 */
 export function applyCardSize() {
-  if (!notepad || notepad.isDestroyed()) return;
-  const { settings } = getDb();
-  const { width, height } = windowSizeFor(settings.cardWidth, settings.cardHeight);
-  const b = notepad.getBounds();
-  notepad.setBounds({ x: b.x, y: b.y, width, height });
+  for (const [id, win] of notepads) {
+    if (!win.isDestroyed()) applyQueueSize(id);
+  }
+}
+
+export function lastActiveQueue() {
+  return lastActiveQueueId || null;
+}
+
+export function queueIdOfWindow(win: BrowserWindow | null): string | null {
+  if (!win) return null;
+  for (const [id, w] of notepads) if (w === win) return id;
+  return null;
+}
+
+export function isNotepadVisible() {
+  for (const win of notepads.values()) {
+    if (!win.isDestroyed() && win.isVisible()) return true;
+  }
+  return false;
 }
 
 export function createManager(): BrowserWindow {
@@ -264,23 +345,24 @@ export function showSkinWindow() {
  * 所以单独开一条通道。调用方必须节流 —— 一次拖动就是几十次往返。
  */
 export function previewVeil(veil: number) {
-  if (notepad && !notepad.isDestroyed()) {
-    notepad.webContents.send('skin:preview-veil', veil);
+  for (const win of notepads.values()) {
+    if (!win.isDestroyed()) win.webContents.send('skin:preview-veil', veil);
   }
 }
 
 export function broadcastDb() {
   const db = getDb();
-  for (const win of [notepad, manager, skinWin]) {
+  const all: (BrowserWindow | null)[] = [...notepads.values(), manager, skinWin];
+  for (const win of all) {
     if (win && !win.isDestroyed()) win.webContents.send('db:changed', db);
   }
 }
 
 export function destroyAll() {
-  for (const win of [notepad, manager, skinWin]) {
+  for (const win of [...notepads.values(), manager, skinWin]) {
     if (win && !win.isDestroyed()) win.destroy();
   }
-  notepad = null;
+  notepads.clear();
   manager = null;
   skinWin = null;
 }

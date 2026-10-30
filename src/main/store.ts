@@ -11,9 +11,11 @@ import {
 } from './db-format';
 import {
   clampCardSize,
+  newQueueFields,
   type Note,
   type NoteColor,
   type NoteDb,
+  type Queue,
   type Settings,
 } from '../shared/types';
 
@@ -208,15 +210,70 @@ function removeAttachment(fileName: string) {
 /**
  * 换图 / 清图。旧附件顺手删掉 —— 一张图只归一张便签，留着就是纯泄漏。
  */
-export function setNoteImage(id: string, fileName: string | null) {
+export function setNoteImage(queueId: string, id: string, fileName: string | null) {
   let old: string | null = null;
   mutate((d) => {
-    const note = d.notes.find((n) => n.id === id);
+    const note = d.queues.find((q) => q.id === queueId)?.notes.find((n) => n.id === id);
     if (!note) return;
     old = note.image;
     note.image = fileName;
   });
   if (old && old !== fileName) removeAttachment(old);
+}
+
+/* ── 队列 ──
+ * 一个队列 = 一个便签窗 + 一叠便签。多开窗口就是多条任务线并行。
+ */
+
+export function createQueue(name: string): Queue {
+  const queue: Queue = { id: newId(), ...newQueueFields(name.trim() || '未命名') };
+  mutate((d) => {
+    d.queues.push(queue);
+  });
+  return queue;
+}
+
+export function renameQueue(id: string, name: string) {
+  const clean = name.trim();
+  if (!clean) return;
+  mutate((d) => {
+    const q = d.queues.find((x) => x.id === id);
+    if (q) q.name = clean;
+  });
+}
+
+/**
+ * 删队列 = 连它那一叠便签和归档一起删，附件也一并清掉。
+ * 只剩一个队列时拒绝 —— 一个都没有就等于程序没窗口可开。
+ */
+export function deleteQueue(id: string): { ok: boolean; reason?: string } {
+  if (getDb().queues.length <= 1) return { ok: false, reason: '至少保留一个队列' };
+  const gone: string[] = [];
+  mutate((d) => {
+    const idx = d.queues.findIndex((x) => x.id === id);
+    if (idx < 0) return;
+    for (const n of d.queues[idx].notes) if (n.image) gone.push(n.image);
+    for (const n of d.queues[idx].archive) if (n.image) gone.push(n.image);
+    d.queues.splice(idx, 1);
+  });
+  for (const f of gone) removeAttachment(f);
+  return { ok: true };
+}
+
+/** 窗口位置 / 卡片尺寸 —— 每队列各记一份，多窗口才不会互相踩。 */
+export function setQueueBounds(
+  id: string,
+  patch: { windowX?: number; windowY?: number; cardWidth?: number; cardHeight?: number }
+) {
+  mutate((d) => {
+    const q = d.queues.find((x) => x.id === id);
+    if (!q) return;
+    if (typeof patch.windowX === 'number') q.windowX = patch.windowX;
+    if (typeof patch.windowY === 'number') q.windowY = patch.windowY;
+    const size = clampCardSize(patch.cardWidth ?? q.cardWidth, patch.cardHeight ?? q.cardHeight);
+    q.cardWidth = size.cardWidth;
+    q.cardHeight = size.cardHeight;
+  });
 }
 
 /**
@@ -358,9 +415,10 @@ export function mutate(fn: (d: NoteDb) => void): NoteDb {
  *   否则新便签排在最后，而便签窗只显示栈顶那张，用户按了热键却什么都看不到。
  */
 export function createNote(
+  queueId: string,
   partial: { text?: string; color?: NoteColor } = {},
   atTop = false
-): Note {
+): Note | null {
   const note: Note = {
     id: newId(),
     text: partial.text ?? '',
@@ -371,16 +429,20 @@ export function createNote(
     dueSetAt: null,
     image: null,
   };
+  let ok = false;
   mutate((d) => {
-    if (atTop) d.notes.unshift(note);
-    else d.notes.push(note);
+    const q = d.queues.find((x) => x.id === queueId);
+    if (!q) return;
+    if (atTop) q.notes.unshift(note);
+    else q.notes.push(note);
+    ok = true;
   });
-  return note;
+  return ok ? note : null;
 }
 
-export function updateNote(id: string, patch: { text?: string; color?: NoteColor }) {
+export function updateNote(queueId: string, id: string, patch: { text?: string; color?: NoteColor }) {
   mutate((d) => {
-    const note = d.notes.find((n) => n.id === id);
+    const note = d.queues.find((q) => q.id === queueId)?.notes.find((n) => n.id === id);
     if (!note) return;
     if (typeof patch.text === 'string') note.text = patch.text;
     if (isColor(patch.color)) note.color = patch.color;
@@ -391,50 +453,58 @@ export function updateNote(id: string, patch: { text?: string; color?: NoteColor
  * 设 / 清时限。dueSetAt 记的是「设的那一刻」——
  * 便签窗那条细线要靠 (dueAt - now) / (dueAt - dueSetAt) 算剩余比例，少了它画不出来。
  */
-export function setNoteDue(id: string, dueAt: number | null) {
+export function setNoteDue(queueId: string, id: string, dueAt: number | null) {
   mutate((d) => {
-    const note = d.notes.find((n) => n.id === id);
+    const note = d.queues.find((q) => q.id === queueId)?.notes.find((n) => n.id === id);
     if (!note) return;
     note.dueAt = dueAt;
     note.dueSetAt = dueAt === null ? null : Date.now();
   });
 }
 
-export function completeNote(id: string) {
+export function completeNote(queueId: string, id: string) {
   mutate((d) => {
-    const idx = d.notes.findIndex((n) => n.id === id);
+    const q = d.queues.find((x) => x.id === queueId);
+    if (!q) return;
+    const idx = q.notes.findIndex((n) => n.id === id);
     if (idx < 0) return;
-    const [note] = d.notes.splice(idx, 1);
+    const [note] = q.notes.splice(idx, 1);
     note.doneAt = Date.now();
-    d.archive.unshift(note);
+    q.archive.unshift(note);
   });
 }
 
-export function restoreNote(id: string) {
+export function restoreNote(queueId: string, id: string) {
   mutate((d) => {
-    const idx = d.archive.findIndex((n) => n.id === id);
+    const q = d.queues.find((x) => x.id === queueId);
+    if (!q) return;
+    const idx = q.archive.findIndex((n) => n.id === id);
     if (idx < 0) return;
-    const [note] = d.archive.splice(idx, 1);
+    const [note] = q.archive.splice(idx, 1);
     note.doneAt = null;
-    d.notes.push(note);
+    q.notes.push(note);
   });
 }
 
-export function deleteArchived(id: string) {
+export function deleteArchived(queueId: string, id: string) {
   mutate((d) => {
-    d.archive = d.archive.filter((n) => n.id !== id);
+    const q = d.queues.find((x) => x.id === queueId);
+    if (q) q.archive = q.archive.filter((n) => n.id !== id);
   });
 }
 
-export function clearArchive() {
+export function clearArchive(queueId: string) {
   mutate((d) => {
-    d.archive = [];
+    const q = d.queues.find((x) => x.id === queueId);
+    if (q) q.archive = [];
   });
 }
 
-export function reorderNotes(orderedIds: string[]) {
+export function reorderNotes(queueId: string, orderedIds: string[]) {
   mutate((d) => {
-    const map = new Map(d.notes.map((n) => [n.id, n]));
+    const q = d.queues.find((x) => x.id === queueId);
+    if (!q) return;
+    const map = new Map(q.notes.map((n) => [n.id, n]));
     const next: Note[] = [];
     for (const id of orderedIds) {
       const note = map.get(id);
@@ -444,21 +514,12 @@ export function reorderNotes(orderedIds: string[]) {
       }
     }
     for (const leftover of map.values()) next.push(leftover);
-    d.notes = next;
+    q.notes = next;
   });
 }
 
 export function updateSettings(patch: Partial<Settings>) {
   mutate((d) => {
-    const size = clampCardSize(
-      patch.cardWidth ?? d.settings.cardWidth,
-      patch.cardHeight ?? d.settings.cardHeight
-    );
-    d.settings = {
-      ...d.settings,
-      ...patch,
-      cardWidth: size.cardWidth,
-      cardHeight: size.cardHeight,
-    };
+    d.settings = { ...d.settings, ...patch };
   });
 }

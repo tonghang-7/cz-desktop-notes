@@ -81,8 +81,11 @@ async function captureFromClipboard() {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, name), Buffer.from(await payload.arrayBuffer()));
 
-    const note = store.createNote({}, true);
-    store.setNoteImage(note.id, name);
+    const qid = W.lastActiveQueue() ?? store.getDb().queues[0]?.id;
+    if (!qid) return;
+    const note = store.createNote(qid, {}, true);
+    if (!note) return;
+    store.setNoteImage(qid, note.id, name);
     W.showNotepad();
     W.broadcastDb();
     return;
@@ -90,7 +93,8 @@ async function captureFromClipboard() {
 
   const text = (await clipboard.readText()).trim();
   if (!text) return;
-  store.createNote({ text }, true);
+  const qid = W.lastActiveQueue() ?? store.getDb().queues[0]?.id;
+  if (qid) store.createNote(qid, { text }, true);
   W.showNotepad();
   W.broadcastDb();
 }
@@ -119,44 +123,47 @@ const trayHandlers: TrayHandlers = {
 function registerIpc() {
   ipcMain.handle('db:get', () => store.getDb());
 
-  ipcMain.handle('note:create', (_e, text: string, color?: NoteColor) => {
-    const note = store.createNote({ text, color });
+  ipcMain.handle('note:create', (_e, queueId: string, text: string, color?: NoteColor) => {
+    const note = store.createNote(queueId, { text, color });
     W.broadcastDb();
     return note;
   });
 
-  ipcMain.handle('note:update', (_e, id: string, patch: { text?: string; color?: NoteColor }) => {
-    store.updateNote(id, patch);
+  ipcMain.handle(
+    'note:update',
+    (_e, queueId: string, id: string, patch: { text?: string; color?: NoteColor }) => {
+      store.updateNote(queueId, id, patch);
+      W.broadcastDb();
+    }
+  );
+
+  ipcMain.handle('note:complete', (_e, queueId: string, id: string) => {
+    store.completeNote(queueId, id);
     W.broadcastDb();
   });
 
-  ipcMain.handle('note:complete', (_e, id: string) => {
-    store.completeNote(id);
+  ipcMain.handle('note:restore', (_e, queueId: string, id: string) => {
+    store.restoreNote(queueId, id);
     W.broadcastDb();
   });
 
-  ipcMain.handle('note:restore', (_e, id: string) => {
-    store.restoreNote(id);
+  ipcMain.handle('archive:delete', (_e, queueId: string, id: string) => {
+    store.deleteArchived(queueId, id);
     W.broadcastDb();
   });
 
-  ipcMain.handle('archive:delete', (_e, id: string) => {
-    store.deleteArchived(id);
+  ipcMain.handle('archive:clear', (_e, queueId: string) => {
+    store.clearArchive(queueId);
     W.broadcastDb();
   });
 
-  ipcMain.handle('archive:clear', () => {
-    store.clearArchive();
+  ipcMain.handle('notes:reorder', (_e, queueId: string, ids: string[]) => {
+    store.reorderNotes(queueId, ids);
     W.broadcastDb();
   });
 
-  ipcMain.handle('notes:reorder', (_e, ids: string[]) => {
-    store.reorderNotes(ids);
-    W.broadcastDb();
-  });
-
-  ipcMain.handle('note:due', (_e, id: string, dueAt: number | null) => {
-    store.setNoteDue(id, dueAt);
+  ipcMain.handle('note:due', (_e, queueId: string, id: string, dueAt: number | null) => {
+    store.setNoteDue(queueId, id, dueAt);
     W.broadcastDb();
   });
 
@@ -170,8 +177,8 @@ function registerIpc() {
     return name;
   });
 
-  ipcMain.handle('note:image', (_e, id: string, fileName: string | null) => {
-    store.setNoteImage(id, fileName);
+  ipcMain.handle('note:image', (_e, queueId: string, id: string, fileName: string | null) => {
+    store.setNoteImage(queueId, id, fileName);
     W.broadcastDb();
   });
 
@@ -296,12 +303,45 @@ function registerIpc() {
     app.exit(0);
   });
 
+  /** 卡片尺寸是每个队列自己的，走这条。 */
+  ipcMain.handle(
+    'queue:bounds',
+    (_e, queueId: string, patch: { cardWidth?: number; cardHeight?: number }) => {
+      store.setQueueBounds(queueId, patch);
+      W.applyQueueSize(queueId);
+      W.broadcastDb();
+      return store.getDb().queues.find((q) => q.id === queueId) ?? null;
+    }
+  );
+
+  ipcMain.handle('queue:create', (_e, name: string) => {
+    const q = store.createQueue(name);
+    W.openQueueWindow(q.id);
+    W.broadcastDb();
+    return q;
+  });
+
+  ipcMain.handle('queue:rename', (_e, id: string, name: string) => {
+    store.renameQueue(id, name);
+    W.retitleQueueWindow(id);
+    W.broadcastDb();
+  });
+
+  ipcMain.handle('queue:delete', (_e, id: string) => {
+    const r = store.deleteQueue(id);
+    if (r.ok) {
+      W.closeQueueWindow(id);
+      W.broadcastDb();
+    }
+    return r;
+  });
+
   ipcMain.handle('settings:update', (_e, patch: Partial<Settings>) => {
     const before = store.getDb().settings;
     store.updateSettings(patch);
     const after = store.getDb().settings;
 
-    if (after.cardWidth !== before.cardWidth || after.cardHeight !== before.cardHeight) {
+    if (after.skin !== before.skin || after.skinImage !== before.skinImage) {
       W.applyCardSize();
     }
     if (after.hotkey !== before.hotkey && after.hotkey) {
@@ -434,10 +474,13 @@ async function bootstrap() {
 
   registerIpc();
 
-  const pad = W.createNotepad();
-  pad.webContents.on('render-process-gone', (_e, details) => {
-    console.error('[boot] renderer gone:', details.reason);
-  });
+  // 每个队列一扇便签窗。启动时全部建出来（不显示），热键一按就一起出现。
+  for (const q of store.getDb().queues) {
+    const win = W.createQueueWindow(q.id);
+    win?.webContents.on('render-process-gone', (_e: unknown, details: { reason?: string }) => {
+      console.error('[boot] renderer gone:', details.reason);
+    });
+  }
 
   const bound = rebindHotkey(() => W.toggleNotepad());
   if (bound) {
