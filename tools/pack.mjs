@@ -26,15 +26,27 @@ fs.mkdirSync(out, { recursive: true });
 try {
   fs.cpSync(src, out, { recursive: true });
 } catch (err) {
-  console.error('');
-  console.error('打包失败：无法写入 ' + out);
-  console.error('原因：' + (err && err.message ? err.message : err));
-  if (fs.existsSync(path.join(out, 'CZNotes.exe'))) {
+  // 单个文件被锁会让整次拷贝失败。最常见的是 default_app.asar：它是 Electron 自带的
+  // 默认应用包，我们跑的是 resources/app，一份都用不到 —— 杀软扫描或上一个进程留下的
+  // 僵尸句柄锁住它时，跳过它重试一次，别为了 1MB 卡住整次发版。
+  const lockedAsar = path.join(out, 'resources', 'default_app.asar');
+  if (fs.existsSync(lockedAsar)) {
+    console.warn('[pack] default_app.asar 被占用，跳过它继续');
+    fs.cpSync(src, out, {
+      recursive: true,
+      filter: (s) => !s.endsWith('default_app.asar'),
+    });
+  } else {
     console.error('');
-    console.error('上一版的 CZNotes.exe 可能还在运行，文件被占用。');
-    console.error('先退出它（托盘图标右键 → 退出），再重新执行 npm run dist。');
+    console.error('打包失败：无法写入 ' + out);
+    console.error('原因：' + (err && err.message ? err.message : err));
+    if (fs.existsSync(path.join(out, 'CZNotes.exe'))) {
+      console.error('');
+      console.error('上一版的 CZNotes.exe 可能还在运行，文件被占用。');
+      console.error('先退出它（托盘图标右键 → 退出），再重新执行 npm run dist。');
+    }
+    process.exit(1);
   }
-  process.exit(1);
 }
 
 const exeOld = path.join(out, 'electron.exe');
@@ -56,7 +68,11 @@ const runtimePkg = {
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(runtimePkg, null, 2));
 
 const defaultAsar = path.join(out, 'resources', 'default_app.asar');
-if (fs.existsSync(defaultAsar)) fs.rmSync(defaultAsar);
+try {
+  if (fs.existsSync(defaultAsar)) fs.rmSync(defaultAsar);
+} catch {
+  /* 被锁就留着：多 1MB，运行时不会用到它 */
+}
 
 const walk = (dir) => {
   let total = 0;
