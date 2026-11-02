@@ -12,6 +12,20 @@ let quitting = false;
 /** 最后聚焦的那个便签窗。剪贴板捕获要贴进「用户正在看的那一叠」。 */
 let lastActiveQueueId = '';
 
+/**
+ * 便签窗的显示 / 隐藏状态变了。托盘菜单的勾选要跟着改，而托盘不能反过来被这一层依赖
+ * （tray.ts 是被 index.ts 组装的），所以只留一个空钩子，由 index.ts 注册。
+ */
+let onWindowsChanged: (() => void) | null = null;
+
+export function setWindowsChangedHook(fn: () => void) {
+  onWindowsChanged = fn;
+}
+
+function notifyChanged() {
+  onWindowsChanged?.();
+}
+
 const preloadPath = () => path.join(__dirname, '../preload/index.js');
 
 export function setQuitting(v: boolean) {
@@ -118,6 +132,7 @@ export function createQueueWindow(queueId: string): BrowserWindow | null {
     if (quitting) return;
     e.preventDefault();
     win.hide();
+    notifyChanged();
   });
 
   // 位置按队列各记一份 —— 放在全局的话两个窗口会互相把对方拽到同一个点上
@@ -132,25 +147,35 @@ export function createQueueWindow(queueId: string): BrowserWindow | null {
     if (lastActiveQueueId === queueId) {
       lastActiveQueueId = [...notepads.keys()][0] ?? '';
     }
+    notifyChanged();
   });
 
   return win;
 }
 
+/**
+ * 把一扇便签窗露出来。窗口可能还在首次加载 —— 那时 show() 会露出白壳，
+ * 所以要等 did-finish-load 再显示。
+ */
+function revealQueueWindow(win: BrowserWindow, focus = false) {
+  const reveal = () => {
+    if (win.isDestroyed()) return;
+    if (!win.isVisible()) win.show();
+    // 加载中调 focus() 不生效，所以它必须排到 show() 之后
+    if (focus) win.focus();
+    win.webContents.send('notepad:shown');
+    notifyChanged();
+  };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', reveal);
+  else reveal();
+}
+
 /** 所有便签窗一起出现。多开的意义就是「同时进行」—— 一起看、一起收。 */
 export function showNotepad() {
   const t0 = performance.now();
-  const queues = getDb().queues;
-  for (const q of queues) {
+  for (const q of getDb().queues) {
     const win = createQueueWindow(q.id);
-    if (!win) continue;
-    const reveal = () => {
-      if (win.isDestroyed()) return;
-      if (!win.isVisible()) win.show();
-      win.webContents.send('notepad:shown');
-    };
-    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', reveal);
-    else reveal();
+    if (win) revealQueueWindow(win);
   }
 
   const focusTarget = notepads.get(lastActiveQueueId) ?? [...notepads.values()][0];
@@ -162,6 +187,7 @@ export function hideNotepad() {
   for (const win of notepads.values()) {
     if (!win.isDestroyed()) win.hide();
   }
+  notifyChanged();
 }
 
 export function toggleNotepad() {
@@ -179,20 +205,37 @@ export function openQueueWindow(queueId: string) {
   const win = createQueueWindow(queueId);
   if (!win) return;
   lastActiveQueueId = queueId;
-  const reveal = () => {
-    if (win.isDestroyed()) return;
-    if (!win.isVisible()) win.show();
-    win.focus();
-    win.webContents.send('notepad:shown');
-  };
-  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', reveal);
-  else reveal();
+  revealQueueWindow(win, true);
+}
+
+/**
+ * 只切这一扇。
+ *
+ * 和 toggleNotepad 的全出全收是两条独立的路 —— 多开之后「我只要看工作这条、
+ * 学习那条先收着」是最常见的动作，热键那个粒度太粗。
+ */
+export function toggleQueueWindow(queueId: string) {
+  const win = createQueueWindow(queueId);
+  if (!win) return;
+  lastActiveQueueId = queueId;
+  if (win.isVisible()) {
+    win.hide();
+    notifyChanged();
+    return;
+  }
+  revealQueueWindow(win, true);
+}
+
+export function isQueueVisible(queueId: string) {
+  const win = notepads.get(queueId);
+  return !!win && !win.isDestroyed() && win.isVisible();
 }
 
 export function closeQueueWindow(queueId: string) {
   const win = notepads.get(queueId);
   if (win && !win.isDestroyed()) win.destroy();
   notepads.delete(queueId);
+  notifyChanged();
 }
 
 export function retitleQueueWindow(queueId: string) {

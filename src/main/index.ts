@@ -118,7 +118,18 @@ const trayHandlers: TrayHandlers = {
     shell.openPath(file ? path.dirname(file) : app.getPath('userData'));
   },
   quit: () => app.quit(),
+  queueItems: () =>
+    store.getDb().queues.map((q) => ({
+      id: q.id,
+      name: q.name,
+      visible: W.isQueueVisible(q.id),
+    })),
+  toggleQueue: (id) => W.toggleQueueWindow(id),
 };
+
+// 托盘菜单是构建时定死的快照。便签窗的显示状态一变就重建一次，
+// 否则勾选会停在打开菜单那一刻的旧值。
+W.setWindowsChangedHook(() => refreshTray(trayHandlers));
 
 function registerIpc() {
   ipcMain.handle('db:get', () => store.getDb());
