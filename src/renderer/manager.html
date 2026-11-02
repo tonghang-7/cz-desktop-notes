@@ -90,6 +90,19 @@
       <p class="mg__sizetip" id="cfg-tip"></p>
     </div>
 
+    <!--
+      替代 window.confirm。原生 <dialog> + showModal() 自带焦点陷阱、Esc 关闭和
+      ::backdrop 遮罩，自己拼 div 反而容易把 Esc 那条路漏掉（Promise 就永远挂着）。
+    -->
+    <dialog class="mg__dialog" id="ask">
+      <p class="mg__dialog__msg" id="ask-msg"></p>
+      <p class="mg__dialog__detail" id="ask-detail"></p>
+      <div class="mg__dialog__btns">
+        <button class="mg__ghost" id="ask-cancel" type="button">取消</button>
+        <button class="mg__primary" id="ask-ok" type="button">确定</button>
+      </div>
+    </dialog>
+
     <script src="./manager.js"></script>
   </body>
 </html>

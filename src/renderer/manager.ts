@@ -52,6 +52,11 @@ const cfgVersion = document.getElementById('cfg-version') as HTMLElement;
 const btnCheckUpdate = document.getElementById('btn-check-update') as HTMLButtonElement;
 const btnInstallUpdate = document.getElementById('btn-install-update') as HTMLButtonElement;
 const btnRelaunch = document.getElementById('btn-relaunch') as HTMLButtonElement;
+const askEl = document.getElementById('ask') as HTMLDialogElement;
+const askMsg = document.getElementById('ask-msg') as HTMLElement;
+const askDetail = document.getElementById('ask-detail') as HTMLElement;
+const askOk = document.getElementById('ask-ok') as HTMLButtonElement;
+const askCancel = document.getElementById('ask-cancel') as HTMLButtonElement;
 
 type UpdateInfo = {
   version: string;
@@ -560,20 +565,59 @@ function startRenameQueue(id: string, chip: HTMLElement) {
   });
 }
 
+let askResolve: ((v: boolean) => void) | null = null;
+
+/**
+ * 替代 window.confirm。
+ *
+ * 文案分两段传：主问句粗体，后果说明小字 —— 原来用 \n\n 把两句塞进一个字符串，
+ * 原生弹窗不做分级，读起来就是一大坨。
+ */
+function askConfirm(msg: string, detail: string, okLabel = '确定', cancellable = true) {
+  if (askResolve) settleAsk(false); // 上一次没结掉（正常不会发生），当取消收掉
+  askMsg.textContent = msg;
+  askDetail.textContent = detail;
+  askDetail.hidden = !detail;
+  askOk.textContent = okLabel;
+  askCancel.hidden = !cancellable;
+  askEl.showModal();
+  return new Promise<boolean>((resolve) => {
+    askResolve = resolve;
+  });
+}
+
+function settleAsk(v: boolean) {
+  const resolve = askResolve;
+  // 先置空：紧随其后的 close() 还会走一次兜底，那次必须是空转
+  askResolve = null;
+  askEl.close();
+  resolve?.(v);
+}
+
+/** 只有「知道了」的提示。 */
+function showAlert(msg: string, detail = '') {
+  return askConfirm(msg, detail, '知道了', false).then(() => undefined);
+}
+
 async function removeQueue(id: string) {
   const q = db.queues.find((x) => x.id === id);
   if (!q) return;
 
   const total = q.notes.length + q.archive.length;
   // 删队列会把里面的便签和附件一起删掉，不是移进回收站 —— 必须问清楚
-  const msg = total
-    ? `删除队列「${q.name}」？\n\n里面的 ${q.notes.length} 张待办和 ${q.archive.length} 张归档会一起删除，不能撤销。`
-    : `删除空队列「${q.name}」？`;
-  if (!window.confirm(msg)) return;
+  const ok = await askConfirm(
+    `删除队列「${q.name}」？`,
+    total
+      ? `里面的 ${q.notes.length} 张待办和 ${q.archive.length} 张归档会一起删除，不能撤销。`
+      : '这个队列还是空的，删掉不影响别的队列。',
+    '删除'
+  );
+  if (!ok) return;
 
   const r = await window.api.deleteQueue(id);
   if (!r.ok) {
-    cfgTip.textContent = r.reason ?? '删不掉';
+    // 不能写进 cfg-tip：那个提示在设置面板里，而设置面板默认是收着的，删失败等于没提示
+    await showAlert('删不掉', r.reason ?? '');
     return;
   }
   db = await window.api.getDb();
@@ -811,6 +855,14 @@ function onSizeInput() {
 
 function wire() {
   btnNew.addEventListener('click', () => void createNew());
+
+  askOk.addEventListener('click', () => settleAsk(true));
+  askCancel.addEventListener('click', () => settleAsk(false));
+  // Esc 走的是 cancel → close，绕过按钮。不兜底的话 Promise 永远挂着，
+  // 那个队列就再也删不掉了（askResolve 一直不为 null）。
+  askEl.addEventListener('close', () => {
+    if (askResolve) settleAsk(false);
+  });
 
   btnSettings.addEventListener('click', () => {
     settingsPanel.hidden = !settingsPanel.hidden;

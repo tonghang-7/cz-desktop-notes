@@ -1371,3 +1371,54 @@ body.sk {
   font-family: inherit;
   outline: none;
 }
+
+/* ── 确认弹窗 ──
+ * 替掉 window.confirm —— 那个是系统灰壳，和纸的视觉是两套语言。
+ * 配色跟管理窗本身走（#f6f5f2 底 / #b45309 主色），不引便签那套 --skin-* 变量：
+ * 那些是卡片和便签窗的着力点，管理窗从来没用过。
+ */
+.mg__dialog {
+  /*
+   * 必须显式写回 position / inset / margin。
+   *
+   * 原生 <dialog> 靠 UA 样式里的 `margin: auto` 居中，而本文件的全局 `* { margin: 0 }`
+   * 是作者样式、优先级永远压过 UA 样式 —— 不写回来，弹窗就贴在窗口左上角。
+   * 而且 UA 只做水平居中（inset-inline-start/end），垂直方向本来就得自己管。
+   */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  width: 372px;
+  max-width: calc(100vw - 48px);
+  padding: 22px 24px 18px;
+  border: none;
+  border-radius: 12px;
+  background: #fffdf8;
+  color: #3c3527;
+  box-shadow: 0 18px 48px rgba(60, 45, 15, 0.26), 0 2px 8px rgba(60, 45, 15, 0.1);
+}
+
+.mg__dialog::backdrop {
+  background: rgba(40, 32, 18, 0.34);
+}
+
+.mg__dialog__msg {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.mg__dialog__detail {
+  margin: 0 0 20px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: rgba(60, 53, 39, 0.66);
+}
+
+.mg__dialog__btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
