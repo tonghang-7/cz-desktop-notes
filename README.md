@@ -64,7 +64,7 @@ https://ghfast.top/https://github.com/tonghang-7/cz-desktop-notes/releases/lates
 - **它随时可能换域名或者停掉**，这类服务都是这样。镜像挂了就用上面的官方地址。
   你自己挂着代理的话，直接走代理下官方地址更省事。
 
-地址的规律是 `https://ghfast.top/` 后面接官方下载链接，换版本时替换版本号即可。
+地址的规律是 `https://ghfast.top/` 后面接官方下载链接。上面两条用的是 `latest`，发新版自动跟随，不用手动改；想点名某个具体版本，把 `releases/latest/download` 换成 `releases/download/v0.7.0` 这样的路径。
 
 ### 从源码构建
 
