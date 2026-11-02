@@ -9,9 +9,53 @@ import { rebindHotkey, unregisterAll, getActiveHotkey, setHotkey } from './hotke
 import { createTray, destroyTray, refreshTray, type TrayHandlers } from './tray';
 import * as updater from './updater';
 import { trace } from './perf';
+import { logError, getLogFile } from './log';
 import type { NoteColor, Settings } from '../shared/types';
 
 app.setAppUserModelId('dev.cangze.czdesktopnotes');
+
+/**
+ * 主进程失败的兜底出口。
+ *
+ * 打包版没有控制台：任何没接住的异常，在用户那里只会表现成「窗口突然没了」或
+ * 「点了没反应」，而我事后拿不到任何现场。所以这里做三件事：记日志、弹一次原生
+ * 对话框、**不退出进程**。
+ *
+ * 不退出是刻意的：这是常驻托盘应用，一退用户连提示都看不到，也留不下排查线索。
+ * 真到了状态已经坏了的地步，用户从托盘退出重开即可 —— 比静默消失可控。
+ */
+let lastReportAt = 0;
+
+function reportProblem(message: string, detail: unknown) {
+  if (!app.isReady()) return; // ready 之前 dialog 会抛
+  if (Date.now() - lastReportAt < 60_000) return; // 一分钟只弹一次，防连环弹窗盖屏
+  lastReportAt = Date.now();
+
+  const text = detail instanceof Error ? (detail.stack ?? detail.message) : String(detail);
+  void dialog.showMessageBox({
+    type: 'error',
+    title: '便签遇到问题',
+    message,
+    detail: `${text}\n\n日志：${getLogFile() ?? '(写不进去)'}`,
+    buttons: ['知道了'],
+    noLink: true,
+  });
+}
+
+process.on('uncaughtException', (err) => {
+  logError('uncaughtException', err);
+  reportProblem('主进程有个错误没被处理，已经写进日志。', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('unhandledRejection', reason);
+  reportProblem('主进程有个异步任务失败了，已经写进日志。', reason);
+});
+
+// 写盘失败必须让用户知道：他那边的直觉是「我打了字就会存」，静默丢数据最伤。
+store.setSaveErrorHandler((err) => {
+  reportProblem('便签没能保存到磁盘，改动还在内存里。', err);
+});
 
 /**
  * 附件图片用 data URL 交给渲染进程，不走自定义协议。

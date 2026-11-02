@@ -9,6 +9,7 @@ import {
   parseDb,
   type LoadState,
 } from './db-format';
+import { logError } from './log';
 import {
   DEFAULT_IMAGE_RATIO,
   clampCardSize,
@@ -30,6 +31,16 @@ let loadState: LoadState = { kind: 'fresh' };
 let readOnly = false;
 /** 最近一次「读不懂就备份」的落盘位置，启动时告诉用户。 */
 let lastBackup: string | null = null;
+
+/**
+ * 写盘失败的通知出口。store 只管数据，不碰 UI —— 由 index.ts 注入「记日志 + 弹给用户」。
+ * 不注入也要能工作（测试里直接 import 这个模块）。
+ */
+let onSaveError: ((err: unknown) => void) | null = null;
+
+export function setSaveErrorHandler(fn: (err: unknown) => void) {
+  onSaveError = fn;
+}
 
 function newId() {
   return randomUUID();
@@ -60,7 +71,7 @@ function writeLocation(dataDir: string | null) {
     fs.mkdirSync(path.dirname(locationPath()), { recursive: true });
     fs.writeFileSync(locationPath(), JSON.stringify({ dataDir }, null, 2), 'utf8');
   } catch (err) {
-    console.error('[store] 写数据位置失败：', err);
+    logError('store 写数据位置失败（下次启动会回到默认目录）', err);
   }
 }
 
@@ -402,7 +413,14 @@ export function flushSync() {
     fs.renameSync(tmp, dataFile);
     dirty = false;
   } catch (err) {
-    console.error('[store] flush failed:', err);
+    // 以前这里只有 console.error —— 打包版没有控制台，磁盘满 / 目录只读 / 网盘占用
+    // 的时候，用户以为存上了，实际什么都没写。现在落日志 + 让上层弹给用户。
+    logError('store.flush 失败（改动未落盘）', err);
+    try {
+      onSaveError?.(err);
+    } catch {
+      /* 本来就在错误处理路径上，通知再抛就真没兜底了 */
+    }
   }
 }
 
