@@ -12,7 +12,9 @@ A single always-on-top window that shows one note at a time. Grab a corner, fold
 
 - **Nothing piles up.** A dismissed note goes to an archive, not back onto the stack. Clear them all and the window says *no notes yet* — that's the goal, not a failure.
 - **Fold to dismiss.** Grab the **lower** corner and drag inward — the paper folds up under your cursor, and once the crease comes within about a fifth of the card diagonal of the centre it tears off; before that it springs back flat. The upper corners are inert: pulling there does nothing at all, so the note can't be folded the wrong way or torn off by accident.
+- **A note has a title.** One line at the top of the editor — the list on the left shows that, nothing else. Leave it blank and the list says *empty title*; the card itself simply doesn't draw one.
 - **A note can hold a picture.** `Ctrl + V` pastes whatever is on your clipboard onto the note in front — a screenshot, a chart, a receipt. Click the image to open it full size in your own viewer.
+- **Resize that picture.** A slider under it sets how much of the card the image takes (20–80%), so a screenshot doesn't swallow the whole note.
 - **A note can carry a deadline.** Set one in the editor and a thin line runs along the bottom of the card, shrinking as the time drains, burning from ink to orange. Past zero the paper yellows and gives one small shake.
 - **Capture without switching windows.** `Ctrl + Alt + V` turns whatever is on your clipboard — an image or plain text — into a fresh note on top of the stack, window included.
 - **Summon from anywhere.** `Ctrl + Alt + Space` over any app, `Esc` to put it away.
@@ -103,9 +105,11 @@ npm run dist
 轻点卡片和「新建便签」之后，光标会直接落在编辑区末尾 —— 不用再点一下「改内容」。
 
 - **队列**：顶部那排 chip 就是任务线。单击切到那一叠、双击改名、右键删除（会连里面的便签和附件一起删，所以先问一次）；末尾 `+` 新建，新建的同时会开出那一扇便签窗，不惊动已经开着的
-- **新建便签**：`Ctrl + N` 或右上角按钮，新卡片排在列表最后
+- **新建便签**：`Ctrl + N` 或右上角按钮，新卡片排在列表最后。新建时光标先落在标题上 —— 第一件事是「这张叫什么」
 - **调整顺序**：直接拖动左侧列表项，越靠上越先显示
+- **标题**：编辑器最上面那一行，左侧列表里显示的就是它。空着的时候列表显示灰色的「空标题」，而卡片上干脆不占位置
 - **改内容**：右侧编辑区，输入即自动保存（停顿 0.4 秒落盘）
+- **图片高度**：有图的时候，图下面有一条滑杆，20%–80%。拖着的时候便签窗实时跟着变，松手才存
 - **换颜色**：五个色点
 - **时限**：编辑器下方一个日期时间输入框 + 清除，想设到哪天几点都行。设了之后卡片右下角有一条会缩短的细线，过期时纸面泛黄、抖一下，并发一条系统通知。没设时限的卡片什么都不显示
 - **摘掉**：列表项右侧的 ✓，或编辑器下方「完成并摘掉」
@@ -181,6 +185,11 @@ npm run pack       # 打成 release/CZNotes-win64.zip，并打印 sha256
 
 **为什么摘掉是两步。**
 点一下就消失的设计误触率太高，而便签的全部价值就是「别忘了」。所以摘掉的卡片进归档而不是删除，随时能放回。
+
+**为什么标题是独立字段，而不是拿正文首行顶替。**
+首行当标题看着是零成本方案，但有两个地方会立刻破：正文里一按回车换行，标题就断在半句上；想改标题得进正文里改，而「改标题」和「改内容」本来是两件事。列表要的是一句短的、稳定的、专门用来认领这张纸的话。
+
+代价是数据多一个字段、编辑器多一个输入框。这两个代价都比「标题和正文纠缠在一起」小。
 
 **为什么保存绑定卡片 id 而不是「当前选中项」。**
 编辑器重建时旧 textarea 从 DOM 移除会触发 blur。如果 blur 回调去读全局的「当前选中项」，旧内容就会写进新选中的卡片。所以保存绑定卡片 id，见 `src/renderer/manager.ts` 的 `flushCurrent`。
