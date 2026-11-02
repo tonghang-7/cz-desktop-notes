@@ -320,6 +320,12 @@ function registerIpc() {
     if (Notification.isSupported()) new Notification({ title, body }).show();
   });
 
+  // 渲染进程没有文件系统：失败的 IPC 只能送回这里落盘。preload 的 invoke 包装
+  // 会把 channel 名带过来，所以日志里能直接看出是哪个操作挂的。
+  ipcMain.handle('app:log', (_e, label: string, detail: string) => {
+    logError(String(label), String(detail));
+  });
+
   ipcMain.handle('app:version', () => app.getVersion());
 
   /**
