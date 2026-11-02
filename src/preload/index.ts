@@ -25,7 +25,7 @@ const api = {
     ipcRenderer.invoke('note:create', pick(queueId), text, color),
   updateNote: (
     id: string,
-    patch: { text?: string; color?: NoteColor },
+    patch: { title?: string; text?: string; color?: NoteColor; imageRatio?: number },
     queueId?: string
   ): Promise<void> => ipcRenderer.invoke('note:update', pick(queueId), id, patch),
   completeNote: (id: string, queueId?: string): Promise<void> =>
@@ -79,6 +79,14 @@ const api = {
     const listener = (_e: unknown, veil: number) => cb(veil);
     ipcRenderer.on('skin:preview-veil', listener);
     return () => ipcRenderer.off('skin:preview-veil', listener);
+  },
+  /** 拖图片高度滑杆时的实时预览，只到便签窗，不写盘。调用方负责节流。 */
+  previewImageRatio: (noteId: string, ratio: number): Promise<void> =>
+    ipcRenderer.invoke('note:preview-ratio', noteId, ratio),
+  onPreviewImageRatio: (cb: (noteId: string, ratio: number) => void) => {
+    const listener = (_e: unknown, noteId: string, ratio: number) => cb(noteId, ratio);
+    ipcRenderer.on('note:preview-ratio', listener);
+    return () => ipcRenderer.off('note:preview-ratio', listener);
   },
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('ui:notify', title, body),

@@ -12,9 +12,9 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { parseDb, migrateDb, normalizeDb, DB_VERSION } = require('../dist/main/db-format.js');
 
-/** v2 的现役结构：一个队列一叠便签。 */
+/** 现役结构：一个队列一叠便签，便签带标题和图片比例。 */
 const validDb = () => ({
-  version: 2,
+  version: DB_VERSION,
   settings: { hotkey: 'Control+Alt+Space' },
   queues: [
     {
@@ -25,10 +25,47 @@ const validDb = () => ({
       cardWidth: 320,
       cardHeight: 250,
       notes: [
-        { id: 'a', text: '第一条', color: 'amber', createdAt: 100, doneAt: null },
-        { id: 'b', text: '第二条', color: 'rose', createdAt: 200, doneAt: 300 },
+        {
+          id: 'a',
+          title: '',
+          text: '第一条',
+          color: 'amber',
+          createdAt: 100,
+          doneAt: null,
+          imageRatio: 0.58,
+        },
+        {
+          id: 'b',
+          title: '第二条的标题',
+          text: '第二条',
+          color: 'rose',
+          createdAt: 200,
+          doneAt: 300,
+          imageRatio: 0.4,
+        },
       ],
       archive: [],
+    },
+  ],
+});
+
+/** v2 的老结构：多队列已经有了，但便签没有标题、图片比例写死。 */
+const legacyV2 = () => ({
+  version: 2,
+  settings: { hotkey: 'Control+Alt+Space' },
+  queues: [
+    {
+      id: 'q1',
+      name: '工作',
+      windowX: 10,
+      windowY: 20,
+      cardWidth: 400,
+      cardHeight: 300,
+      notes: [
+        { id: 'a', text: '没有标题的第一条', color: 'amber', createdAt: 100, doneAt: null },
+        { id: 'b', text: '第二条', color: 'rose', createdAt: 200, doneAt: 300, image: 'x.png' },
+      ],
+      archive: [{ id: 'c', text: '已经摘掉的一条', color: 'sky', createdAt: 50, doneAt: 60 }],
     },
   ],
 });
@@ -44,7 +81,7 @@ const legacyV1 = () => ({
   archive: [],
 });
 
-test('正常 v2 数据：loaded，笔记一条不少', () => {
+test('正常现役数据：loaded，笔记一条不少', () => {
   const { state, db } = parseDb(JSON.stringify(validDb()));
   assert.equal(state.kind, 'loaded');
   assert.equal(db.queues.length, 1);
@@ -53,6 +90,64 @@ test('正常 v2 数据：loaded，笔记一条不少', () => {
   assert.equal(db.queues[0].notes[1].doneAt, 300);
   assert.equal(db.settings.hotkey, 'Control+Alt+Space');
   assert.equal(db.version, DB_VERSION);
+});
+
+test('v2 迁移到 v3：待办补上空标题和被写死的 0.58 图片比例', () => {
+  const { state, db } = parseDb(JSON.stringify(legacyV2()));
+  assert.equal(state.kind, 'migrated');
+  assert.equal(state.from, 2);
+  assert.equal(db.version, DB_VERSION);
+
+  for (const n of db.queues[0].notes) {
+    assert.equal(n.title, '', '老便签没有标题，补空串而不是 undefined');
+    assert.equal(
+      n.imageRatio,
+      0.58,
+      '0.58 是 .card__img 原来写死的高度，画面必须和以前一致'
+    );
+  }
+  // 原有的内容一个都不能动
+  assert.equal(db.queues[0].notes[0].text, '没有标题的第一条');
+  assert.equal(db.queues[0].notes[1].image, 'x.png');
+  assert.equal(db.queues[0].windowX, 10);
+});
+
+test('归档里的便签也补上新字段，不只补待办', () => {
+  const { db } = parseDb(JSON.stringify(legacyV2()));
+  assert.equal(db.queues[0].archive.length, 1);
+  assert.equal(db.queues[0].archive[0].title, '');
+  assert.equal(db.queues[0].archive[0].imageRatio, 0.58);
+  assert.equal(db.queues[0].archive[0].text, '已经摘掉的一条');
+});
+
+test('v1 一路迁到 v3：中间那步不会漏字段', () => {
+  const { state, db } = parseDb(JSON.stringify(legacyV1()));
+  assert.equal(state.kind, 'migrated');
+  assert.equal(state.from, 1);
+  assert.equal(db.version, DB_VERSION);
+  assert.equal(db.queues[0].notes.length, 2);
+  for (const n of db.queues[0].notes) {
+    assert.equal(n.title, '');
+    assert.equal(n.imageRatio, 0.58);
+  }
+});
+
+test('imageRatio 越界或不是数字：收回默认值，不让坏值落盘', () => {
+  const raw = validDb();
+  raw.queues[0].notes[0].imageRatio = 9;
+  raw.queues[0].notes[1].imageRatio = 'garbage';
+  const { db } = parseDb(JSON.stringify(raw));
+  assert.equal(db.queues[0].notes[0].imageRatio, 0.8, '上限 0.8');
+  assert.equal(db.queues[0].notes[1].imageRatio, 0.58, '非数字退默认');
+
+  raw.queues[0].notes[0].imageRatio = -3;
+  assert.equal(parseDb(JSON.stringify(raw)).db.queues[0].notes[0].imageRatio, 0.2, '下限 0.2');
+});
+
+test('已经是 v3 的数据带标题：原样保留，不被默认值盖掉', () => {
+  const { db } = parseDb(JSON.stringify(validDb()));
+  assert.equal(db.queues[0].notes[1].title, '第二条的标题');
+  assert.equal(db.queues[0].notes[1].imageRatio, 0.4);
 });
 
 test('v1 老数据迁移成一个队列，笔记和窗口位置都跟着搬过去', () => {

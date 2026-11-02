@@ -393,6 +393,18 @@ export function previewVeil(veil: number) {
   }
 }
 
+/**
+ * 拖图片高度滑杆时的实时预览：只推给便签窗，不写盘、不广播。
+ *
+ * 和 previewVeil 一个道理 —— 管理窗和便签窗是两个渲染进程，改自己 DOM 上的
+ * CSS 变量够不着对方。走 broadcastDb 又太重：拖一次就是几十次全量数据往返 + 整卡重画。
+ */
+export function previewImageRatio(noteId: string, ratio: number) {
+  for (const win of notepads.values()) {
+    if (!win.isDestroyed()) win.webContents.send('note:preview-ratio', noteId, ratio);
+  }
+}
+
 export function broadcastDb() {
   const db = getDb();
   const all: (BrowserWindow | null)[] = [...notepads.values(), manager, skinWin];

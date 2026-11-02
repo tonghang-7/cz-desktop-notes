@@ -2,6 +2,14 @@ export type NoteColor = 'amber' | 'rose' | 'sky' | 'mint' | 'violet';
 
 export interface Note {
   id: string;
+  /**
+   * 标题。列表里显示的就是它，空串时列表显示「空标题」。
+   *
+   * 和正文分成两个字段，是因为「改标题」和「改正文」是两个动作：
+   * 靠正文首行顶替的话，在正文里回车一换行，标题就断了；
+   * 而且列表里会被一整段话挤满 —— 以前就是整段 textContent 靠 CSS 截成一行。
+   */
+  title: string;
   text: string;
   color: NoteColor;
   createdAt: number;
@@ -16,6 +24,12 @@ export interface Note {
    * 文件在 <数据目录>/attachments/ 下。
    */
   image: string | null;
+  /**
+   * 图片占卡片的高度比例（IMAGE_RATIO_MIN–MAX）。没图时无意义。
+   * 默认 0.58 必须和 style.css 里 `.card__img { height: 58% }` 那条对得上 ——
+   * 老数据补上默认值之后，画面要和加这个字段之前一模一样。
+   */
+  imageRatio: number;
 }
 
 /**
@@ -107,7 +121,7 @@ export const DEFAULT_QUEUE_SIZE = { cardWidth: 320, cardHeight: 250 };
  * 三个窗口都要一个初值，各自手写会漂 —— 尤其是队列字段以后再加的时候。
  */
 export const EMPTY_DB: NoteDb = {
-  version: 2,
+  version: 3,
   settings: { ...DEFAULT_SETTINGS },
   queues: [
     {
@@ -156,4 +170,19 @@ export function clampCardSize(w: number, h: number) {
     cardWidth: Math.min(CARD_MAX_W, Math.max(CARD_MIN_W, Math.round(w))),
     cardHeight: Math.min(CARD_MAX_H, Math.max(CARD_MIN_H, Math.round(h))),
   };
+}
+
+/** 图片占卡片高度的比例。0.2 时只剩一条缩略带，0.8 时基本是图、字只剩两行。 */
+export const IMAGE_RATIO_MIN = 0.2;
+export const IMAGE_RATIO_MAX = 0.8;
+/**
+ * 0.58 —— 不是凑整，是 `.card__img` 原来写死的 `height: 58%`。
+ * 老数据补默认值之后画面必须和以前逐像素一致，所以这个数字不能改。
+ */
+export const DEFAULT_IMAGE_RATIO = 0.58;
+
+/** 非数字 / 越界都收回默认值。0.6 是重构前写死的那条线，老数据必须落在它上面。 */
+export function clampImageRatio(v: unknown) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_IMAGE_RATIO;
+  return Math.min(IMAGE_RATIO_MAX, Math.max(IMAGE_RATIO_MIN, v));
 }

@@ -8,6 +8,8 @@
  */
 import {
   EMPTY_DB,
+  IMAGE_RATIO_MAX,
+  IMAGE_RATIO_MIN,
   SKINS,
   type Note,
   type NoteColor,
@@ -98,11 +100,20 @@ function fmtTime(ts: number) {
   return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function currentEditor(): { id: string; text: string } | null {
+/**
+ * 编辑器里当前这一张的完整内容。
+ *
+ * 标题和正文一起返回，因为它们共用一次落盘 —— 分开写会互相取消防抖，
+ * 打标题时正文那半截就丢了。
+ *
+ * id 读的是 textarea 自己身上的 noteId，不是 selectedId（原因见 flushCurrent）。
+ */
+function currentEditor(): { id: string; title: string; text: string } | null {
   const ta = editor.querySelector<HTMLTextAreaElement>('.ed__text');
   const id = ta?.dataset.noteId;
   if (!ta || !id) return null;
-  return { id, text: ta.value };
+  const ti = editor.querySelector<HTMLInputElement>('.ed__title');
+  return { id, title: ti?.value ?? '', text: ta.value };
 }
 
 function clearDropMarks() {
@@ -129,10 +140,13 @@ function renderList() {
 
     const text = document.createElement('span');
     text.className = 'it__text';
-    if (note.text.trim()) {
-      text.textContent = note.text;
+    // 列表只认标题。没有标题显示「空标题」而不是回落到正文首行 ——
+    // 回落会让「没起名」和「起了名」长得一样，反而看不出哪条还没整理。
+    if (note.title.trim()) {
+      text.textContent = note.title;
+      text.title = note.title;
     } else {
-      text.textContent = '空白便签';
+      text.textContent = '空标题';
       text.classList.add('is-empty');
     }
 
@@ -332,19 +346,55 @@ function renderEditor() {
 
   meta.append(pos, colors);
 
+  const titleInput = document.createElement('input');
+  titleInput.type = 'text';
+  titleInput.className = 'ed__title';
+  titleInput.placeholder = '给这张起个标题（列表里显示的就是它）';
+  titleInput.value = note.title;
+  titleInput.dataset.noteId = note.id;
+  titleInput.spellcheck = false;
+
   const ta = document.createElement('textarea');
   ta.className = 'ed__text';
   ta.placeholder = '写下你的疑问、想法，或者任何要记住的事…';
   ta.value = note.text;
   ta.dataset.noteId = note.id;
   ta.spellcheck = false;
-  ta.addEventListener('input', () => {
+
+  /**
+   * 一次拿全标题和正文。
+   *
+   * 两个输入框共用一个防抖器 —— 分开写的话，改标题会取消掉正在排队的正文保存，
+   * 那半截字就丢了。所以每次落盘都把两份一起交上去，值没变的那份重复写一次无害。
+   */
+  const snap = () => {
     const id = ta.dataset.noteId;
-    if (id) scheduleSave(id, ta.value);
+    return id ? { id, title: titleInput.value, text: ta.value } : null;
+  };
+
+  titleInput.addEventListener('input', () => {
+    const s = snap();
+    if (s) scheduleSave(s);
+  });
+  titleInput.addEventListener('blur', () => {
+    const s = snap();
+    if (s) flushSave(s);
+  });
+  // 单行框按回车本来没反应，但默认行为会把焦点送走 —— 顺手送到正文，符合书写顺序
+  titleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      ta.focus();
+    }
+  });
+
+  ta.addEventListener('input', () => {
+    const s = snap();
+    if (s) scheduleSave(s);
   });
   ta.addEventListener('blur', () => {
-    const id = ta.dataset.noteId;
-    if (id) flushSave(id, ta.value);
+    const s = snap();
+    if (s) flushSave(s);
   });
 
   // 图片是便签的内容，编辑器里就得看得见 —— 只在卡片上画一张图，
@@ -366,7 +416,62 @@ function renderEditor() {
   imgDel.textContent = '移除图片';
   imgDel.addEventListener('click', () => void window.api.setImage(note.id, null, currentQueueId));
 
-  imgWrap.append(imgEl, imgDel);
+  /*
+   * 图占卡片多少高度。
+   *
+   * 拖动时只推预览、松手才落盘 —— 一次拖动是几十个 input 事件，
+   * 每个都 updateNote 就是几十次全量写盘，而且 420ms 防抖会让预览慢半拍。
+   */
+  const ratioRow = document.createElement('label');
+  ratioRow.className = 'ed__imgratio';
+
+  const ratioTag = document.createElement('span');
+  ratioTag.className = 'ed__imgratio__tag';
+  ratioTag.textContent = '高度';
+
+  const ratioInput = document.createElement('input');
+  ratioInput.type = 'range';
+  ratioInput.min = String(Math.round(IMAGE_RATIO_MIN * 100));
+  ratioInput.max = String(Math.round(IMAGE_RATIO_MAX * 100));
+  ratioInput.step = '2';
+  ratioInput.value = String(Math.round(note.imageRatio * 100));
+
+  const ratioOut = document.createElement('output');
+  ratioOut.className = 'ed__imgratio__val';
+  ratioOut.textContent = `${Math.round(note.imageRatio * 100)}%`;
+
+  /**
+   * 编辑器里的预览图也跟着比例走。
+   *
+   * 不跟的话，拖滑杆只有便签窗在变，而编辑器里那张图纹丝不动 —— 看不出
+   * 「图小了、字就多了」这件事。
+   *
+   * 基准 240 是量出来的：这个窗口给编辑器的高度约 490px，图 + 滑杆 + 标题 + 时限 +
+   * 底栏已经吃掉 330，剩下必须够正文写五六行。58% 落在 139px，和卡片上的观感接近。
+   */
+  const EDITOR_IMG_BASE = 240;
+  const previewEditorImg = (pct: number) => {
+    imgEl.style.maxHeight = `${Math.round((pct / 100) * EDITOR_IMG_BASE)}px`;
+  };
+  previewEditorImg(Math.round(note.imageRatio * 100));
+
+  ratioInput.addEventListener('input', () => {
+    const pct = Number(ratioInput.value);
+    ratioOut.textContent = `${pct}%`;
+    previewEditorImg(pct);
+    void window.api.previewImageRatio(note.id, pct / 100);
+  });
+  ratioInput.addEventListener('change', () => {
+    void window.api.updateNote(
+      note.id,
+      { imageRatio: Number(ratioInput.value) / 100 },
+      currentQueueId
+    );
+  });
+
+  ratioRow.append(ratioTag, ratioInput, ratioOut);
+
+  imgWrap.append(imgEl, imgDel, ratioRow);
 
   // 时限：一个原生的日期时间输入框。
   // 预设按钮本质是「相对现在」的换算，既表达不了「周五 14:00 开会」这种，
@@ -422,11 +527,14 @@ function renderEditor() {
   doneBtn.addEventListener('click', () => void completeNote(note.id));
 
   foot.append(saved, doneBtn);
-  wrap.append(meta, imgWrap, ta, dueRow, foot);
+  wrap.append(meta, imgWrap, titleInput, ta, dueRow, foot);
   editor.appendChild(wrap);
 
   updateEditorMeta(note);
-  ta.focus();
+  // 新建出来的是空的：光标先落标题，因为「这张叫什么」是第一个决定。
+  // 点已有卡片进来多半是接着改内容，就还落在正文。
+  if (!note.title && !note.text) titleInput.focus();
+  else ta.focus();
 }
 
 function renderArchive() {
@@ -439,8 +547,9 @@ function renderArchive() {
 
     const text = document.createElement('span');
     text.className = 'ar__text';
-    text.textContent = note.text.trim() || '（空白）';
-    text.title = note.text;
+    text.textContent = note.title.trim() || '空标题';
+    // 悬停看正文：归档里光有标题常常想不起当时写的是什么
+    text.title = note.title.trim() || note.text;
 
     const time = document.createElement('span');
     time.className = 'ar__time';
@@ -647,28 +756,32 @@ function flashSaved() {
   savedTimer = window.setTimeout(() => el.classList.remove('is-on'), 1200);
 }
 
-async function commitText(id: string, text: string) {
-  if (!id) return;
-  await window.api.updateNote(id, { text }, currentQueueId);
+async function commitEditor(snap: { id: string; title: string; text: string }) {
+  if (!snap.id) return;
+  await window.api.updateNote(
+    snap.id,
+    { title: snap.title, text: snap.text },
+    currentQueueId
+  );
   flashSaved();
 }
 
-function scheduleSave(id: string, text: string) {
+function scheduleSave(snap: { id: string; title: string; text: string }) {
   if (saveTimer) window.clearTimeout(saveTimer);
   // 停顿 420ms 才落盘。打中文时每敲一个字都触发一次 input，
   // 不防抖就是一字一次 IPC、一次全量写盘。
   saveTimer = window.setTimeout(() => {
     saveTimer = null;
-    void commitText(id, text);
+    void commitEditor(snap);
   }, 420);
 }
 
-function flushSave(id: string, text: string) {
+function flushSave(snap: { id: string; title: string; text: string }) {
   if (saveTimer) {
     window.clearTimeout(saveTimer);
     saveTimer = null;
   }
-  void commitText(id, text);
+  void commitEditor(snap);
 }
 
 /**
@@ -682,7 +795,7 @@ function flushSave(id: string, text: string) {
  */
 function flushCurrent() {
   const cur = currentEditor();
-  if (cur) flushSave(cur.id, cur.text);
+  if (cur) flushSave(cur);
 }
 
 function select(id: string) {

@@ -328,6 +328,23 @@ body.np {
   font-style: italic;
 }
 
+/*
+ * 卡片上的标题：比正文大一号，最多两行，超出省略。
+ * 它排在 .card__text 的流里（不是绝对定位），所以两行标题会把正文往下推两行。
+ * 有图时要给字留地方，就把图的比例调小 —— 那正是 imageRatio 滑杆的用途。
+ */
+.card__title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.32;
+  margin-bottom: 6px;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
 .card.enter {
   animation: card-rise 230ms cubic-bezier(0.22, 0.9, 0.3, 1) both;
 }
@@ -672,9 +689,44 @@ body.mg {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9) inset;
 }
 
+/*
+ * 标题输入框。
+ *
+ * 单行、比正文大一档，只画一条底边 —— 它读起来应该像这张纸抬头写的一行字，
+ * 而不是又一个要填的方框。正文那个带全边框的盒子还是最重的东西。
+ *
+ * flex: 0 0 auto 让它不参与伸缩，剩下的高度全归 .ed__text 的 flex: 1。
+ */
+.ed__title {
+  flex: 0 0 auto;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 4px 2px 8px;
+  border: none;
+  border-bottom: 1px solid rgba(60, 53, 39, 0.26);
+  background: transparent;
+  color: #2f2a20;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.ed__title:focus {
+  border-bottom-color: rgba(180, 83, 9, 0.55);
+}
+
+.ed__title::placeholder {
+  color: rgba(60, 53, 39, 0.32);
+  font-weight: 400;
+}
+
 .ed__text {
   flex: 1 1 auto;
-  min-height: 0;
+  /* 有图的时候上面已经吃掉三百多像素，不给个下限正文就被压成一条缝 */
+  min-height: 110px;
   width: 100%;
   resize: none;
   border: 1px solid rgba(60, 53, 39, 0.16);
@@ -928,7 +980,11 @@ body.mg {
   inset: 0 0 auto 0;
   display: block;
   width: 100%;
-  height: 58%;
+  /*
+   * 比例由 note.imageRatio 通过 --img-ratio 注入，默认 58% 是加这个字段之前写死的值。
+   * 老数据的 imageRatio 就是 0.58，所以升级后画面和以前一模一样。
+   */
+  height: var(--img-ratio, 58%);
   /* contain 而不是 cover：320x145 的框里塞 1920x1080 的截图，cover 会把上下各裁掉 8.6%。
      留白用极淡的底色，看起来像照片贴在纸上。 */
   object-fit: contain;
@@ -941,12 +997,17 @@ body.mg {
   -webkit-user-drag: none;
 }
 
+/*
+ * 文字区从图片下沿开始、到底边结束 —— 不写死 30%，因为图的高度现在是可调的。
+ * 用 top + bottom 自动撑满，图调小字就多，图调大字就少。
+ */
 .card.has-image .card__text {
   position: absolute;
   left: 22px;
   right: 22px;
+  top: calc(var(--img-ratio, 58%) + 10px);
   bottom: 20px;
-  height: 30%;
+  height: auto;
 }
 
 /* ── 时限：卡片右下角一条会缩的细线 ── */
@@ -1016,6 +1077,15 @@ body.mg {
 
 /* ── 管理窗里的图片：便签的内容，不是卡片上的贴纸 ── */
 .ed__imgwrap {
+  /*
+   * flex: 0 0 auto 不能省。
+   *
+   * .ed 是 flex 列，imgWrap 默认 flex-shrink: 1 —— 内容一高就被压缩，
+   * 而它又有 overflow: hidden，压掉的那部分直接裁没。
+   * 加了高度滑杆之后就暴露了：滑杆行被裁到容器外面，肉眼完全看不见（布局位置还在，
+   * offsetParent 也不为 null，所以脚本查「元素存不存在」查不出来，得看 rect）。
+   */
+  flex: 0 0 auto;
   position: relative;
   margin: 10px 0 12px;
   border-radius: 8px;
@@ -1050,6 +1120,41 @@ body.mg {
 
 .ed__imgwrap:hover .ed__imgdel {
   opacity: 1;
+}
+
+/*
+ * 图片高度滑杆。
+ *
+ * 它决定图在卡片上占多高 —— 也就是「文字还剩几行」。有图又想在正文里写长东西时，
+ * 调小一点比换编辑器划算得多。
+ */
+.ed__imgratio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 9px;
+  border-top: 0.5px solid rgba(60, 53, 39, 0.1);
+  font-size: 11.5px;
+}
+
+.ed__imgratio__tag {
+  flex: 0 0 auto;
+  color: rgba(60, 53, 39, 0.45);
+}
+
+.ed__imgratio input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 默认的蓝滑块跟整张纸完全不搭；accent-color 是最省事的跨浏览器改法 */
+  accent-color: #b45309;
+}
+
+.ed__imgratio__val {
+  flex: 0 0 auto;
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(60, 53, 39, 0.62);
 }
 
 /* ── 管理窗里的时限行 ── */

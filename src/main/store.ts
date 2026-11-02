@@ -10,7 +10,9 @@ import {
   type LoadState,
 } from './db-format';
 import {
+  DEFAULT_IMAGE_RATIO,
   clampCardSize,
+  clampImageRatio,
   newQueueFields,
   type Note,
   type NoteColor,
@@ -416,11 +418,12 @@ export function mutate(fn: (d: NoteDb) => void): NoteDb {
  */
 export function createNote(
   queueId: string,
-  partial: { text?: string; color?: NoteColor } = {},
+  partial: { title?: string; text?: string; color?: NoteColor } = {},
   atTop = false
 ): Note | null {
   const note: Note = {
     id: newId(),
+    title: partial.title ?? '',
     text: partial.text ?? '',
     color: partial.color ?? 'amber',
     createdAt: Date.now(),
@@ -428,6 +431,7 @@ export function createNote(
     dueAt: null,
     dueSetAt: null,
     image: null,
+    imageRatio: DEFAULT_IMAGE_RATIO,
   };
   let ok = false;
   mutate((d) => {
@@ -440,12 +444,20 @@ export function createNote(
   return ok ? note : null;
 }
 
-export function updateNote(queueId: string, id: string, patch: { text?: string; color?: NoteColor }) {
+export function updateNote(
+  queueId: string,
+  id: string,
+  patch: { title?: string; text?: string; color?: NoteColor; imageRatio?: number }
+) {
   mutate((d) => {
     const note = d.queues.find((q) => q.id === queueId)?.notes.find((n) => n.id === id);
     if (!note) return;
+    if (typeof patch.title === 'string') note.title = patch.title;
     if (typeof patch.text === 'string') note.text = patch.text;
     if (isColor(patch.color)) note.color = patch.color;
+    // 拖滑杆是连续调用，每次都要收回范围 —— 越界的值一旦落盘，
+    // 下次启动图片会占满整张卡片或缩成一条
+    if (typeof patch.imageRatio === 'number') note.imageRatio = clampImageRatio(patch.imageRatio);
   });
 }
 

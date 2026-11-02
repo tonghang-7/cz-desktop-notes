@@ -142,7 +142,12 @@ function registerIpc() {
 
   ipcMain.handle(
     'note:update',
-    (_e, queueId: string, id: string, patch: { text?: string; color?: NoteColor }) => {
+    (
+      _e,
+      queueId: string,
+      id: string,
+      patch: { title?: string; text?: string; color?: NoteColor; imageRatio?: number }
+    ) => {
       store.updateNote(queueId, id, patch);
       W.broadcastDb();
     }
@@ -368,6 +373,11 @@ function registerIpc() {
   ipcMain.handle('ui:open-skin', () => W.showSkinWindow());
   ipcMain.handle('skin:preview-veil', (_e, veil: number) => {
     if (typeof veil === 'number' && Number.isFinite(veil)) W.previewVeil(veil);
+  });
+  ipcMain.handle('note:preview-ratio', (_e, noteId: string, ratio: number) => {
+    if (typeof noteId === 'string' && typeof ratio === 'number' && Number.isFinite(ratio)) {
+      W.previewImageRatio(noteId, ratio);
+    }
   });
   ipcMain.handle('ui:hide-notepad', () => W.hideNotepad());
   ipcMain.handle('ui:show-notepad', () => W.showNotepad());

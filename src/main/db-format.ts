@@ -8,7 +8,9 @@ import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_QUEUE_SIZE,
+  DEFAULT_IMAGE_RATIO,
   clampCardSize,
+  clampImageRatio,
   isSkin,
   newQueueFields,
   type Note,
@@ -19,7 +21,7 @@ import {
 } from '../shared/types';
 
 /** 当前数据结构版本。改数据结构就 +1，并在 MIGRATIONS 里补一条升级路径。 */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 export type Migration = (db: Record<string, unknown>) => Record<string, unknown>;
 
@@ -71,6 +73,36 @@ export const MIGRATIONS: Record<number, Migration> = {
 
     return out;
   },
+
+  /**
+   * v2 → v3：便签有了标题，图片有了高度比例。
+   *
+   * 两步都是纯补默认值，normalizeNote 其实也兜得住 —— 之所以还是升版本：
+   * v3 的数据在旧程序里会被判成 future → 只读。不升的话，退回旧版本一切正常，
+   * 但旧程序的 normalizeNote 按白名单重建对象，不认识 title 就直接丢掉，
+   * **第一次保存就把所有标题静默抹掉**，不报错也不提示。
+   *
+   * imageRatio 的默认必须锁在 0.58 —— 那是 `.card__img` 原来写死的 `height: 58%`，
+   * 老便签升级之后画面要和以前逐像素一致。
+   */
+  2: (db) => {
+    const fill = (list: unknown) =>
+      Array.isArray(list)
+        ? list.map((n) => {
+            if (!n || typeof n !== 'object') return n;
+            const note = { ...(n as Record<string, unknown>) };
+            if (typeof note.title !== 'string') note.title = '';
+            if (typeof note.imageRatio !== 'number') note.imageRatio = DEFAULT_IMAGE_RATIO;
+            return note;
+          })
+        : list;
+
+    const queues = Array.isArray(db.queues) ? (db.queues as Record<string, unknown>[]) : [];
+    return {
+      ...db,
+      queues: queues.map((q) => ({ ...q, notes: fill(q.notes), archive: fill(q.archive) })),
+    };
+  },
 };
 
 /** NoteDb 允许出现的顶层键。normalizeDb 按白名单重建对象，多出来的键视为「没接住」。 */
@@ -107,6 +139,7 @@ function normalizeNote(raw: unknown): Note | null {
   const r = raw as Record<string, unknown>;
   return {
     id: typeof r.id === 'string' && r.id ? r.id : randomUUID(),
+    title: typeof r.title === 'string' ? r.title : '',
     text: typeof r.text === 'string' ? r.text : '',
     color: isColor(r.color) ? r.color : 'amber',
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),
@@ -114,6 +147,7 @@ function normalizeNote(raw: unknown): Note | null {
     dueAt: typeof r.dueAt === 'number' ? r.dueAt : null,
     dueSetAt: typeof r.dueSetAt === 'number' ? r.dueSetAt : null,
     image: typeof r.image === 'string' && r.image ? r.image : null,
+    imageRatio: clampImageRatio(r.imageRatio),
   };
 }
 

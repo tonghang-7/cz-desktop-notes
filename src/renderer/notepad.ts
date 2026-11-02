@@ -126,6 +126,8 @@ function buildCard(note: Note): HTMLElement {
       img.src = url;
       img.alt = '';
       img.draggable = false;
+      // 比例走 CSS 变量：文字区的 top 也要跟着算（见 style.css 里 .card.has-image .card__text）
+      el.style.setProperty('--img-ratio', `${(note.imageRatio * 100).toFixed(1)}%`);
       el.appendChild(img);
       el.classList.add('has-image');
     }
@@ -133,15 +135,32 @@ function buildCard(note: Note): HTMLElement {
 
   const text = document.createElement('div');
   text.className = 'card__text';
-  if (note.text.trim()) {
-    text.textContent = note.text;
-  } else {
-    // 有图的时候不必再顶一句「空白便签」—— 图本身就是内容
-    if (!note.image) {
-      text.textContent = '空白便签';
-      text.classList.add('card__text--empty');
-    }
+
+  /*
+   * 标题排在正文流里，不做绝对定位。
+   *
+   * 卡片是透明窗口里的一个元素，折纸要把它整棵子树抓进 canvas（drawElementImage）。
+   * 绝对定位会让「屏幕上的位置」和「抓出来的位置」多一条依赖，之前踩过类似的坑。
+   * 放在流里则不然：标题占几行，正文自然往下推几行，布局代码一行都不用动。
+   */
+  if (note.title.trim()) {
+    const title = document.createElement('div');
+    title.className = 'card__title';
+    title.textContent = note.title;
+    text.appendChild(title);
   }
+
+  // 正文单独占一个 span：直接 textContent 赋值会把刚 append 的标题冲掉
+  const body = document.createElement('span');
+  body.className = 'card__body';
+  if (note.text.trim()) {
+    body.textContent = note.text;
+  } else if (!note.title.trim() && !note.image) {
+    // 有标题或图的时候不必再顶一句「空白便签」—— 标题/图本身就是内容
+    body.textContent = '空白便签';
+    body.classList.add('card__text--empty');
+  }
+  text.appendChild(body);
 
   // 滚到底就摘掉底部渐隐，否则最后一行永远糊在渐变里。scroll 不冒泡，不影响卡片手势。
   text.addEventListener('scroll', () => {
@@ -933,6 +952,15 @@ async function boot() {
   // 松手那边会走 updateSettings，广播回来正好是同一个值，不会跳。
   window.api.onSkinPreview((veil) => {
     document.documentElement.style.setProperty('--skin-photo-veil', `${veil}%`);
+  });
+
+  // 管理窗拖图片高度滑杆时的实时预览。只改这一张卡片的变量，
+  // 不重画 —— 重画会把正在预览的那张卡重新构建一遍，滑动就不跟手了。
+  window.api.onPreviewImageRatio((noteId, ratio) => {
+    const card = document.querySelector<HTMLElement>('.card');
+    // 只认当前栈顶那张：别的队列、叠底下的那些都不该被牵动
+    if (!card || card.dataset.id !== noteId) return;
+    card.style.setProperty('--img-ratio', `${(ratio * 100).toFixed(1)}%`);
   });
 
   window.api.onDbChanged((next) => {
