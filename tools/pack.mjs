@@ -17,7 +17,19 @@ if (!fs.existsSync(path.join(root, 'dist', 'main', 'index.js'))) {
 const releaseDir = path.join(root, 'release');
 
 /**
- * 尽力删除，返回删不掉的条目 [{ path, code }]。
+ * 删不掉时给人看的原因。
+ *
+ * 不能只取 err.code —— 有些失败（宿主/杀软的删除钩子、聚合错误）根本没有 code，
+ * 全打成 `?` 等于没报。退一步取第一行消息。
+ */
+const shortReason = (err) => {
+  if (err && typeof err.code === 'string') return err.code;
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.split('\n')[0].slice(0, 80) || 'unknown';
+};
+
+/**
+ * 尽力删除，返回删不掉的条目 [{ path, reason }]。
  *
  * 整棵 rmSync 失败时退化为逐条删 —— 一个被锁的文件不该连累同目录下的其它文件，
  * 而这正是之前空 catch 掩盖的事：release/ 只删掉一半，根目录的旧 zip / tar.gz 全留着。
@@ -34,7 +46,7 @@ const removeBestEffort = (target) => {
   try {
     entries = fs.readdirSync(target, { withFileTypes: true });
   } catch (err) {
-    return [{ path: target, code: err.code || '?' }];
+    return [{ path: target, reason: shortReason(err) }];
   }
 
   const failed = [];
@@ -45,7 +57,7 @@ const removeBestEffort = (target) => {
       try {
         fs.rmSync(p, { force: true });
       } catch (err) {
-        failed.push({ path: p, code: err.code || '?' });
+        failed.push({ path: p, reason: shortReason(err) });
       }
     }
   }
@@ -60,7 +72,7 @@ const removeBestEffort = (target) => {
     } catch {
       /* 读不了就当非空，子项的错误已经报过了 */
     }
-    if (empty) failed.push({ path: target, code: err.code || '?' });
+    if (empty) failed.push({ path: target, reason: shortReason(err) });
   }
   return failed;
 };
@@ -68,10 +80,12 @@ const removeBestEffort = (target) => {
 const leftovers = removeBestEffort(releaseDir);
 if (leftovers.length) {
   console.warn('');
-  console.warn('[pack] release/ 没清干净，下面这些删不掉：');
-  for (const item of leftovers) {
-    console.warn(`  - ${path.relative(root, item.path)}  (${item.code})`);
+  console.warn(`[pack] release/ 没清干净：${leftovers.length} 项删不掉`);
+  // 只列前几条：整棵树被拦的时候，逐条列一百行只会把真正的原因淹掉。
+  for (const item of leftovers.slice(0, 5)) {
+    console.warn(`  - ${path.relative(root, item.path)}  (${item.reason})`);
   }
+  if (leftovers.length > 5) console.warn(`  … 另外 ${leftovers.length - 5} 项同因，不再逐个列`);
   console.warn('[pack] 通常是 CZNotes 还在运行（exe 被锁），或者杀软正在扫这个目录。');
   console.warn('[pack] cpSync 只覆盖不删除，所以下面会再查一遍产物里有没有孤儿文件。');
   console.warn('');
@@ -85,6 +99,18 @@ const isRuntimeJunk = (p) => /^(debug|chrome_debug)\.log$/i.test(path.basename(p
 
 // 目标目录里的文件被占用时（最常见的是 CZNotes.exe 还开着），cpSync 抛的是原始
 // Node 错误，看不懂。这里换成能照着做的提示。
+const failCopy = (err) => {
+  console.error('');
+  console.error('打包失败：无法写入 ' + out);
+  console.error('原因：' + (err && err.message ? err.message : err));
+  if (fs.existsSync(path.join(out, 'CZNotes.exe'))) {
+    console.error('');
+    console.error('上一版的 CZNotes.exe 可能还在运行，文件被占用。');
+    console.error('先退出它（托盘图标右键 → 退出），再重新执行 npm run dist。');
+  }
+  process.exit(1);
+};
+
 try {
   fs.cpSync(src, out, { recursive: true, filter: (s) => !isRuntimeJunk(s) });
 } catch (err) {
@@ -92,22 +118,16 @@ try {
   // 默认应用包，我们跑的是 resources/app，一份都用不到 —— 杀软扫描或上一个进程留下的
   // 僵尸句柄锁住它时，跳过它重试一次，别为了 1MB 卡住整次发版。
   const lockedAsar = path.join(out, 'resources', 'default_app.asar');
-  if (fs.existsSync(lockedAsar)) {
-    console.warn('[pack] default_app.asar 被占用，跳过它继续');
+  if (!fs.existsSync(lockedAsar)) failCopy(err);
+  console.warn('[pack] cpSync 失败，怀疑 default_app.asar 被占用，跳过它重试一次');
+  try {
     fs.cpSync(src, out, {
       recursive: true,
       filter: (s) => !s.endsWith('default_app.asar') && !isRuntimeJunk(s),
     });
-  } else {
-    console.error('');
-    console.error('打包失败：无法写入 ' + out);
-    console.error('原因：' + (err && err.message ? err.message : err));
-    if (fs.existsSync(path.join(out, 'CZNotes.exe'))) {
-      console.error('');
-      console.error('上一版的 CZNotes.exe 可能还在运行，文件被占用。');
-      console.error('先退出它（托盘图标右键 → 退出），再重新执行 npm run dist。');
-    }
-    process.exit(1);
+  } catch (err2) {
+    // 第二次还失败说明不是 asar 的问题，别再假装跳过一个文件就万事大吉。
+    failCopy(err2);
   }
 }
 
