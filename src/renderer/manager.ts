@@ -407,7 +407,7 @@ function renderEditor() {
   imgEl.className = 'ed__img';
   imgEl.alt = '';
   imgEl.addEventListener('click', () => {
-    if (note.image) void window.api.openImage(note.image);
+    if (note.image) void window.api.previewImage(note.image);
   });
 
   const imgDel = document.createElement('button');

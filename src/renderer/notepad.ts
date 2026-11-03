@@ -784,7 +784,7 @@ function attachGesture(
         sy <= imgRect.bottom;
 
       if (pendingRender) render();
-      else if (onImage && note.image) void window.api.openImage(note.image);
+      else if (onImage && note.image) void window.api.previewImage(note.image);
       // 传 true：轻点卡片的目的就是改这张，进去直接把光标放编辑器里
       else void window.api.openManager(true);
       return;

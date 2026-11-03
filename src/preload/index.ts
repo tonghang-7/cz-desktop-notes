@@ -85,6 +85,8 @@ const api = {
   /** 读附件，拿 data URL（同源，canvas 能和 drawElementImage 一起抓） */
   readImage: (fileName: string): Promise<string | null> =>
     invoke('image:read', fileName),
+  /** 铺满屏幕看这张图（单独一扇窗，点任意处关闭） */
+  previewImage: (fileName: string): Promise<void> => invoke('image:preview', fileName),
   /** 用系统看图程序打开（返回错误信息，成功时是 null） */
   openImage: (fileName: string): Promise<string | null> =>
     invoke('image:open', fileName),

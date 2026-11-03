@@ -67,12 +67,20 @@ const targets = [
     target: 'chrome126',
     format: 'iife',
   },
+  {
+    entryPoints: ['src/renderer/image.ts'],
+    outfile: 'dist/renderer/image.js',
+    platform: 'browser',
+    target: 'chrome126',
+    format: 'iife',
+  },
 ];
 
 const statics = [
   ['src/renderer/notepad.html', 'dist/renderer/notepad.html'],
   ['src/renderer/manager.html', 'dist/renderer/manager.html'],
   ['src/renderer/skin.html', 'dist/renderer/skin.html'],
+  ['src/renderer/image.html', 'dist/renderer/image.html'],
   ['src/renderer/style.css', 'dist/renderer/style.css'],
 ];
 

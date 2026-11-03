@@ -1527,3 +1527,50 @@ body.sk {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* 看图窗：整块屏幕只放一张图，点任意处关闭。 */
+.ivw {
+  background: #0b0b0d;
+  overflow: hidden;
+  cursor: zoom-out;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 图元素撑满可用区域，内容按比例 contain：小图会放大到屏幕、大图缩到屏幕，
+   和系统看图器的「适应窗口」一致。只限上限的话，200px 的表情在 1920 屏上等于没放大。 */
+.ivw__img {
+  position: absolute;
+  inset: 2vh 2vw;
+  width: calc(100vw - 4vw);
+  height: calc(100vh - 4vh);
+  object-fit: contain;
+}
+
+/* 应用内看图：点卡片 / 编辑器里的图片打开，点任意处关闭。 */
+.lb {
+  position: fixed;
+  inset: 0;
+  /* 必须写回来：全局 * { margin: 0 } 会盖掉 UA 给 dialog 的居中 */
+  margin: auto;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.88);
+  overflow: hidden;
+  cursor: zoom-out;
+}
+
+.lb::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* 绝对定位 + inset 0 + margin auto：宽高自动，永远居中，不用算 */
+.lb__img {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  max-width: 94

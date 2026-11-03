@@ -381,6 +381,59 @@ export function showSkinWindow() {
   win.focus();
 }
 
+let imageWin: BrowserWindow | null = null;
+
+/**
+ * 看图窗：铺满当前显示器，只显示一张图，点任意处 / Esc 关掉。
+ *
+ * 不撑大便签窗来做这件事 —— 窗口 bounds 会被监听写进 queue.cardWidth / cardHeight，
+ * 看一眼图不该改用户的便签尺寸。单独一扇窗，关掉就销毁，对数据零影响。
+ */
+export function showImageViewer(fileName: string) {
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const bounds = {
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height,
+  };
+  const html = path.join(__dirname, '../renderer/image.html');
+  const query = { file: path.basename(fileName) };
+
+  if (imageWin && !imageWin.isDestroyed()) {
+    imageWin.setBounds(bounds);
+    void imageWin.loadFile(html, { query });
+    imageWin.show();
+    imageWin.focus();
+    return;
+  }
+
+  imageWin = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    backgroundColor: '#0b0b0d',
+    autoHideMenuBar: true,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      spellcheck: false,
+    },
+  });
+
+  // 便签窗本身是置顶的，看图必须盖在它上面，否则点开一张图却看不见。
+  imageWin.setAlwaysOnTop(true, 'screen-saver');
+  void imageWin.loadFile(html, { query });
+  imageWin.once('ready-to-show', () => imageWin?.show());
+  imageWin.on('closed', () => {
+    imageWin = null;
+  });
+  imageWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+}
+
 /**
  * 蒙版浓度拖动时的实时预览：只推给便签窗，不写盘、不广播。
  *
@@ -414,7 +467,7 @@ export function broadcastDb() {
 }
 
 export function destroyAll() {
-  for (const win of [...notepads.values(), manager, skinWin]) {
+  for (const win of [...notepads.values(), manager, skinWin, imageWin]) {
     if (win && !win.isDestroyed()) win.destroy();
   }
   notepads.clear();

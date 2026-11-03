@@ -262,6 +262,12 @@ function registerIpc() {
     }
   });
 
+  /** 铺满屏幕看一张图。单独一扇窗，不动便签窗的尺寸和位置。 */
+  ipcMain.handle('image:preview', (_e, fileName: string) => {
+    if (typeof fileName !== 'string' || !fileName) return;
+    W.showImageViewer(fileName);
+  });
+
   // ── 皮肤背景图 ──
 
   /**
