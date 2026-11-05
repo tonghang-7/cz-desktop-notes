@@ -1477,6 +1477,47 @@ body.sk {
   outline: none;
 }
 
+/* ── 队列右键菜单：两项，不抢戏 ── */
+.mg__qmenu {
+  position: fixed;
+  z-index: 80;
+  min-width: 116px;
+  padding: 5px;
+  border: 1px solid rgba(60, 53, 39, 0.14);
+  border-radius: 9px;
+  background: #fffdf8;
+  box-shadow: 0 10px 26px rgba(60, 45, 15, 0.2), 0 2px 6px rgba(60, 45, 15, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mg__qmenu__item {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #3c3527;
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mg__qmenu__item:hover {
+  background: rgba(180, 83, 9, 0.09);
+  color: #b45309;
+}
+
+.mg__qmenu__item.is-danger {
+  color: #b42318;
+}
+
+.mg__qmenu__item.is-danger:hover {
+  background: rgba(180, 35, 24, 0.1);
+}
+
 /* ── 确认弹窗 ──
  * 替掉 window.confirm —— 那个是系统灰壳，和纸的视觉是两套语言。
  * 配色跟管理窗本身走（#f6f5f2 底 / #b45309 主色），不引便签那套 --skin-* 变量：

@@ -614,11 +614,54 @@ function syncSize() {
   sizeHOut.textContent = String(cur().cardHeight);
 }
 
+let qmenuEl: HTMLDivElement | null = null;
+
+function closeQueueMenu() {
+  qmenuEl?.remove();
+  qmenuEl = null;
+}
+
+/**
+ * 队列右键菜单。原来右键是「直接删」—— 一次误触就得读一遍确认框，
+ * 而且改名只能靠双击，没人告诉过用户。现在两项并排摆出来，自己选。
+ */
+function openQueueMenu(q: Queue, chip: HTMLElement, x: number, y: number) {
+  closeQueueMenu();
+  const m = document.createElement('div');
+  m.className = 'mg__qmenu';
+
+  const item = (label: string, danger: boolean, run: () => void) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mg__qmenu__item' + (danger ? ' is-danger' : '');
+    b.textContent = label;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeQueueMenu();
+      run();
+    });
+    return b;
+  };
+
+  m.append(
+    item('重命名', false, () => startRenameQueue(q.id, chip)),
+    item('删除', true, () => void removeQueue(q.id))
+  );
+  // 挂 body 而不是 queues：render() 会清空 queues，挂里面会被一起抹掉。
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = `${Math.max(6, Math.min(x, innerWidth - r.width - 6))}px`;
+  m.style.top = `${Math.max(6, Math.min(y, innerHeight - r.height - 6))}px`;
+  qmenuEl = m;
+}
+
 /**
  * 队列条：一条任务线一个 chip，末尾一个 +。
- * 单击切换、双击改名、右键删除 —— 三个动作都只动当前这一叠，不碰别的窗口。
+ * 单击切换、双击改名、右键出菜单 —— 三个动作都只动当前这一叠，不碰别的窗口。
  */
 function renderQueues() {
+  // db 一变 chip 就重建，菜单里存的那个 chip 引用会变成 detached 节点。
+  closeQueueMenu();
   queuesEl.innerHTML = '';
 
   for (const q of db.queues) {
@@ -626,7 +669,7 @@ function renderQueues() {
     b.type = 'button';
     b.className = 'mg__q';
     b.textContent = q.name;
-    b.title = `${q.notes.length} 张待办 · 双击改名 · 右键删除`;
+    b.title = `${q.notes.length} 张待办 · 双击改名 · 右键出菜单`;
     if (q.id === cur().id) b.classList.add('is-on');
     b.addEventListener('click', () => switchQueue(q.id));
     b.addEventListener('dblclick', (e) => {
@@ -635,7 +678,7 @@ function renderQueues() {
     });
     b.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      void removeQueue(q.id);
+      openQueueMenu(q, b, e.clientX, e.clientY);
     });
     queuesEl.appendChild(b);
   }
@@ -1006,6 +1049,19 @@ function wire() {
     settingsPanel.hidden = !settingsPanel.hidden;
     // 每次打开都重查一遍：用户可能在 Windows 里自己把那个 .lnk 删了。
     if (!settingsPanel.hidden) syncShortcut();
+  });
+
+  // 点别处收掉队列菜单。用 capture 阶段的 pointerdown：右键换一个 chip 时先关旧的，
+  // 随后的 contextmenu 再开新的，两个菜单不会叠在一起。
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (qmenuEl && !qmenuEl.contains(e.target as Node)) closeQueueMenu();
+    },
+    true
+  );
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeQueueMenu();
   });
 
   sizeW.addEventListener('input', onSizeInput);
