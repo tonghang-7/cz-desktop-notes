@@ -939,6 +939,9 @@ function wire() {
 }
 
 async function boot() {
+  // 这一扇窗负责哪一叠，由 preload 从 URL 的 ?q= 读出来。不赋这一句，
+  // myQueue() 的 find 永远落空、全部退回 db.queues[0]，多开几扇窗看到的是同一叠。
+  myQueueId = window.api.myQueueId();
   db = await window.api.getDb();
   await applyAllSkin(db);
   applyVars();
