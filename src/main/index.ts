@@ -10,7 +10,6 @@ import { createTray, destroyTray, refreshTray, type TrayHandlers } from './tray'
 import * as updater from './updater';
 import { trace } from './perf';
 import { logError, getLogFile } from './log';
-import { getShortcutState, setStartMenuShortcut } from './shortcut';
 import type { NoteColor, Settings } from '../shared/types';
 
 app.setAppUserModelId('dev.cangze.czdesktopnotes');
@@ -467,14 +466,6 @@ function registerIpc() {
     });
     if (res.canceled || !res.filePaths[0]) return null;
     return res.filePaths[0];
-  });
-
-  ipcMain.handle('shortcut:get', () => getShortcutState());
-  ipcMain.handle('shortcut:set', (_e, on: boolean) => {
-    const r = setStartMenuShortcut(on === true);
-    // 返回 { ok:false } 而不是抛错，invoke 包装抓不到 —— 失败得自己留现场。
-    if (!r.ok) logError('shortcut', r.reason ?? '未知原因');
-    return r;
   });
 
   ipcMain.handle('ui:quit', () => app.quit());

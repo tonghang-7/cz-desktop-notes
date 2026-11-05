@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ShortcutResult, ShortcutState } from '../main/shortcut';
 import type { Note, NoteColor, NoteDb, Queue, Settings } from '../shared/types';
 
 /**
@@ -164,9 +163,6 @@ const api = {
   setDataDir: (dir: string | null): Promise<{ ok: boolean; dir: string; reason?: string }> =>
     invoke('data:set-dir', dir),
   chooseDataDir: (): Promise<string | null> => invoke('data:choose-dir'),
-  /** 开始菜单快捷方式的现状；不支持时 state.supported=false，UI 要把按钮置灰。 */
-  getStartMenuShortcut: (): Promise<ShortcutState> => invoke('shortcut:get'),
-  setStartMenuShortcut: (on: boolean): Promise<ShortcutResult> => invoke('shortcut:set', on),
   quit: (): Promise<void> => invoke('ui:quit'),
   onDbChanged: (cb: (db: NoteDb) => void) => {
     const listener = (_e: unknown, db: NoteDb) => cb(db);
