@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { extractTarGz, isNewer } from './update-format';
+import { logError } from './log';
 
 const REPO = 'tonghang-7/cz-desktop-notes';
 const API = `https://api.github.com/repos/${REPO}/releases/latest`;
@@ -192,7 +193,8 @@ export function applyPendingUpdate(): 'applied' | 'cleaned' | 'none' | 'failed' 
     return 'applied';
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[update] 安装失败，已回滚：', msg);
+    // 打包版没有控制台。last-error.txt 给 UI 看，main.log 留带堆栈的现场。
+    logError('update:apply', err);
     // 打包版没有控制台。失败必须留痕，否则用户看到的只是「点了重启没反应」。
     try {
       fs.mkdirSync(updateDir(), { recursive: true });

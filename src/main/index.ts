@@ -351,6 +351,9 @@ function registerIpc() {
     try {
       return { ok: true, info: await updater.checkUpdate(), current: app.getVersion() };
     } catch (err) {
+      // 只返回 {ok:false} 的话，打包版一点现场都留不下 —— 用户报「更新失败」
+      // 就只能靠他截图。检查失败和下载失败是两个阶段，分开记。
+      logError('update:check', err);
       return { ok: false, current: app.getVersion(), error: err instanceof Error ? err.message : String(err) };
     }
   });
@@ -360,6 +363,7 @@ function registerIpc() {
       await updater.downloadUpdate(info);
       return { ok: true };
     } catch (err) {
+      logError('update:download', err);
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
