@@ -44,6 +44,8 @@ const hint = document.getElementById('hint') as HTMLElement;
 const cfgSkinName = document.getElementById('cfg-skin-name') as HTMLElement;
 const queuesEl = document.getElementById('queues') as HTMLElement;
 const cfgAutoLaunch = document.getElementById('cfg-autolaunch') as HTMLInputElement;
+const cfgShortcut = document.getElementById('cfg-shortcut') as HTMLElement;
+const btnShortcut = document.getElementById('btn-shortcut') as HTMLButtonElement;
 const cfgDataDir = document.getElementById('cfg-datadir') as HTMLElement;
 const btnDataDir = document.getElementById('btn-datadir') as HTMLButtonElement;
 const btnDataDirDefault = document.getElementById('btn-datadir-default') as HTMLButtonElement;
@@ -570,6 +572,29 @@ function renderArchive() {
   }
 }
 
+/**
+ * 开始菜单快捷方式。类型从 preload 的 api 推回来，渲染层不直接 import 主进程模块。
+ * 能不能用、装没装，全部由主进程判 —— 渲染层只负责显示和点按钮。
+ */
+type ShortcutState = Awaited<ReturnType<typeof window.api.getStartMenuShortcut>>;
+let shortcutState: ShortcutState | null = null;
+
+function paintShortcut(s: ShortcutState) {
+  shortcutState = s;
+  btnShortcut.disabled = !s.supported;
+  btnShortcut.textContent = s.installed ? '移除' : '添加';
+  cfgShortcut.textContent = !s.supported ? '不可用' : s.installed ? '已添加' : '未添加';
+  cfgShortcut.title = s.reason ?? s.linkPath ?? '';
+}
+
+function syncShortcut() {
+  // 这里必须接住 reject：渲染层没有 unhandledrejection 兜底，失败会变成「点了没反应」。
+  void window.api.getStartMenuShortcut().then(paintShortcut, () => {
+    btnShortcut.disabled = true;
+    cfgShortcut.textContent = '读取失败';
+  });
+}
+
 /** 设置里只显示当前皮肤的名字，挑选这件事交给皮肤管理窗。 */
 function syncSkinName() {
   const hasPhoto = !!db.settings.skinImage;
@@ -979,6 +1004,8 @@ function wire() {
 
   btnSettings.addEventListener('click', () => {
     settingsPanel.hidden = !settingsPanel.hidden;
+    // 每次打开都重查一遍：用户可能在 Windows 里自己把那个 .lnk 删了。
+    if (!settingsPanel.hidden) syncShortcut();
   });
 
   sizeW.addEventListener('input', onSizeInput);
@@ -997,6 +1024,26 @@ function wire() {
       cfgAutoLaunch.checked = on;
       cfgTip.textContent = on ? '开机会自动启动' : '已关掉开机自启';
     })();
+  });
+
+  btnShortcut.addEventListener('click', () => {
+    if (!shortcutState?.supported || btnShortcut.disabled) return;
+    const next = !shortcutState.installed;
+    btnShortcut.disabled = true; // 连点两下会在写盘中撞车，先锁住
+    void window.api.setStartMenuShortcut(next).then(
+      (r) => {
+        paintShortcut(r.state);
+        cfgTip.textContent = r.ok
+          ? next
+            ? '已添加到开始菜单。搜索索引可能要过几秒到几分钟才刷出来。'
+            : '已从开始菜单移除。'
+          : `没成功：${r.reason ?? '未知原因'}`;
+      },
+      (err) => {
+        btnShortcut.disabled = false;
+        cfgTip.textContent = `没成功：${err instanceof Error ? err.message : String(err)}`;
+      }
+    );
   });
 
   btnDataDir.addEventListener('click', () => {
@@ -1199,6 +1246,7 @@ async function boot() {
     ? `按 ${prettyHotkey(key)} 随时呼出便签`
     : '热键未绑定成功，可从托盘图标呼出';
   cfgAutoLaunch.checked = await window.api.getAutoLaunch();
+  syncShortcut();
   cfgDataDir.textContent = await window.api.getDataDir();
   // 面板宽度有限，路径会被截断 —— 完整的悬停可见
   cfgDataDir.title = cfgDataDir.textContent;
