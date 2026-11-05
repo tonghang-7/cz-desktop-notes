@@ -17,8 +17,8 @@
     "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "electron": "^45.0.0",
+    "@types/node": "^26.6.6",
+    "electron": "^45.1.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   },
