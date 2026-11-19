@@ -20,8 +20,12 @@ import {
   type Settings,
 } from '../shared/types';
 
-/** 当前数据结构版本。改数据结构就 +1，并在 MIGRATIONS 里补一条升级路径。 */
-export const DB_VERSION = 3;
+/**
+ * 当前数据结构版本。加字段、删字段都 +1，并在 MIGRATIONS 里补一条升级路径。
+ * 删字段也要升：旧程序不认识「没有 title」这种新形态，读进去会按白名单补回一个空标题；
+ * 升了版本则降级直接判 future → 只读，不会出现两个版本来回改写同一份数据。
+ */
+export const DB_VERSION = 4;
 
 export type Migration = (db: Record<string, unknown>) => Record<string, unknown>;
 
@@ -29,9 +33,9 @@ export type Migration = (db: Record<string, unknown>) => Record<string, unknown>
  * 迁移链：key 是旧版本号，函数把旧结构升级到下一版。
  * 已发布的迁移永不修改，只往后加 —— 否则老用户的数据会被两次迁移搞坏。
  *
- * 规矩：迁移新增的字段，必须同时加进 NoteDb 类型和 normalizeDb。
- * 少改一处，parseDb 会直接判定为「结构对不上」并报错 —— 宁可报错，
- * 也不能把用户的字段悄悄丢掉。
+ * 规矩：迁移新增的字段，必须同时加进 NoteDb 类型和 normalizeDb；删掉的字段
+ * 也要从这两处一起拿掉。少改一处，parseDb 会直接判定为「结构对不上」并报错 ——
+ * 宁可报错，也不能把用户的字段悄悄丢掉。
  */
 export const MIGRATIONS: Record<number, Migration> = {
   /**
@@ -103,6 +107,35 @@ export const MIGRATIONS: Record<number, Migration> = {
       queues: queues.map((q) => ({ ...q, notes: fill(q.notes), archive: fill(q.archive) })),
     };
   },
+
+  /**
+   * v3 → v4：便签不再有独立标题，「这一叠是关于什么的」交给队列名。
+   *
+   * 已经写进 data.json 的标题不能凭空消失 —— 前移到正文第一行，
+   * 列表、归档、卡片上都还能看到那句话。归档里的同样处理。
+   * 正文已经以这句话开头时不重复加（用户可能早就把它抄进正文了）。
+   * 用 delete 而不是置 undefined：parseDb 认的是 key 存不存在。
+   */
+  3: (db) => {
+    const merge = (list: unknown) =>
+      Array.isArray(list)
+        ? list.map((n) => {
+            if (!n || typeof n !== 'object') return n;
+            const note = { ...(n as Record<string, unknown>) };
+            const title = typeof note.title === 'string' ? note.title.trim() : '';
+            const text = typeof note.text === 'string' ? note.text : '';
+            if (title && !text.startsWith(title)) note.text = text ? `${title}\n${text}` : title;
+            delete note.title;
+            return note;
+          })
+        : list;
+
+    const queues = Array.isArray(db.queues) ? (db.queues as Record<string, unknown>[]) : [];
+    return {
+      ...db,
+      queues: queues.map((q) => ({ ...q, notes: merge(q.notes), archive: merge(q.archive) })),
+    };
+  },
 };
 
 /** NoteDb 允许出现的顶层键。normalizeDb 按白名单重建对象，多出来的键视为「没接住」。 */
@@ -139,7 +172,6 @@ function normalizeNote(raw: unknown): Note | null {
   const r = raw as Record<string, unknown>;
   return {
     id: typeof r.id === 'string' && r.id ? r.id : randomUUID(),
-    title: typeof r.title === 'string' ? r.title : '',
     text: typeof r.text === 'string' ? r.text : '',
     color: isColor(r.color) ? r.color : 'amber',
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),

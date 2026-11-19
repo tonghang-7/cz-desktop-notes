@@ -26,8 +26,10 @@ let db: NoteDb = emptyDb();
 let dataFile = '';
 let saveTimer: NodeJS.Timeout | null = null;
 let dirty = false;
-let loadState: LoadState = { kind: 'fresh' };
-/** 数据文件来自更新版本的程序时只读：任何写回都会把新结构降级成旧结构。 */
+const pendingAttachmentCleanup = new Set<string>();
+type StoreLoadState = LoadState | { kind: 'unreadable'; file: string; reason: string };
+let loadState: StoreLoadState = { kind: 'fresh' };
+/** 读取失败、数据版本过高或备份失败时，保护原文件免于被写回。 */
 let readOnly = false;
 /** 最近一次「读不懂就备份」的落盘位置，启动时告诉用户。 */
 let lastBackup: string | null = null;
@@ -56,22 +58,43 @@ function locationPath(): string {
   return path.join(app.getPath('userData'), LOCATION_FILE);
 }
 
-function readLocation(): { dataDir: string } | null {
+function readLocation(file: string): { dataDir: string } | null {
+  let raw: string;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(locationPath(), 'utf8'));
-    const dir = (parsed as { dataDir?: unknown } | null)?.dataDir;
-    return typeof dir === 'string' && dir ? { dataDir: dir } : null;
-  } catch {
-    return null;
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
   }
+  const parsed: unknown = JSON.parse(raw);
+  const dir = (parsed as { dataDir?: unknown } | null)?.dataDir;
+  if (dir === null) return null;
+  if (typeof dir === 'string' && dir.trim()) return { dataDir: dir };
+  throw new Error('数据目录配置无效');
+}
+
+function markUnreadable(file: string, err: unknown) {
+  readOnly = true;
+  loadState = { kind: 'unreadable', file, reason: err instanceof Error ? err.message : String(err) };
+  logError(`store 读取失败 (${file})`, err);
 }
 
 function writeLocation(dataDir: string | null) {
+  const file = locationPath();
+  const tmp = `${file}.${newId()}.tmp`;
   try {
-    fs.mkdirSync(path.dirname(locationPath()), { recursive: true });
-    fs.writeFileSync(locationPath(), JSON.stringify({ dataDir }, null, 2), 'utf8');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ dataDir }, null, 2), 'utf8');
+    fs.renameSync(tmp, file);
   } catch (err) {
-    logError('store 写数据位置失败（下次启动会回到默认目录）', err);
+    try {
+      fs.unlinkSync(tmp);
+    } catch (cleanupErr) {
+      if ((cleanupErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logError(`store 清理地址临时文件失败 (${tmp})`, cleanupErr);
+      }
+    }
+    throw new Error('未能保存新数据目录', { cause: err });
   }
 }
 
@@ -103,11 +126,22 @@ function moveDir(from: string, to: string) {
 }
 
 export function initStore(): NoteDb {
+  readOnly = false;
+  lastBackup = null;
   // NOTES_DATA_DIR 可以把数据放到指定目录：便携版、放网盘同步、多套数据切换都用得上。
   // 指定了就不再走 userData，也不做旧目录迁移（那不是默认位置）。
   // 优先级：环境变量 > 用户选的目录（data-location.json）> 默认 userData。
   const override = process.env.NOTES_DATA_DIR;
-  const loc = override ? null : readLocation();
+  let loc: ReturnType<typeof readLocation> = null;
+  if (!override) {
+    const file = locationPath();
+    try {
+      loc = readLocation(file);
+    } catch (err) {
+      markUnreadable(file, err);
+      return db;
+    }
+  }
   dataFile = override
     ? path.join(override, 'data.json')
     : loc
@@ -115,24 +149,28 @@ export function initStore(): NoteDb {
       : path.join(app.getPath('userData'), 'data.json');
   if (!override && !loc) migrateLegacyData(dataFile);
 
-  let raw: string;
+  let raw: Buffer;
   try {
-    raw = fs.readFileSync(dataFile, 'utf8');
-  } catch {
-    // 第一次启动：目录里还没有 data.json。
-    db = emptyDb();
-    loadState = { kind: 'fresh' };
+    raw = fs.readFileSync(dataFile);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      db = emptyDb();
+      loadState = { kind: 'fresh' };
+    } else {
+      markUnreadable(dataFile, err);
+    }
     return db;
   }
 
-  const { state, db: loaded } = parseDb(raw);
+  const { state, db: loaded } = parseDb(raw.toString('utf8'));
   loadState = state;
 
   switch (state.kind) {
     case 'corrupt': {
       // 关键：读不懂就绝不能把空库写回去。先留一份原文件副本，再让上层决定怎么办。
-      const backup = backupUnreadable(raw);
-      console.error('[store] data.json 无法解析：', state.reason, backup ? `已备份到 ${backup}` : '备份失败');
+      lastBackup = backupUnreadable(raw);
+      readOnly = lastBackup === null;
+      logError(`store 无法解析 ${dataFile}`, state.reason);
       db = emptyDb();
       break;
     }
@@ -156,16 +194,15 @@ export function initStore(): NoteDb {
 }
 
 /** 把读不懂的原始内容另存一份，原文件保持不动。 */
-function backupUnreadable(raw: string): string | null {
+function backupUnreadable(raw: Buffer): string | null {
   try {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const file = `${dataFile}.corrupt-${stamp}.bak`;
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, raw, 'utf8');
-    lastBackup = file;
+    fs.writeFileSync(file, raw, { flag: 'wx' });
     return file;
   } catch (err) {
-    console.error('[store] 备份失败：', err);
+    logError(`store 备份失败 (${dataFile})`, err);
     return null;
   }
 }
@@ -215,23 +252,56 @@ export function attachmentsDir() {
 function removeAttachment(fileName: string) {
   try {
     fs.unlinkSync(path.join(attachmentsDir(), fileName));
-  } catch {
-    // 文件本来就不在：不是错误
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logError(`store 清理附件失败 (${fileName})`, err);
+    }
   }
 }
 
-/**
- * 换图 / 清图。旧附件顺手删掉 —— 一张图只归一张便签，留着就是纯泄漏。
- */
+function scheduleAttachmentCleanup(name: string | null) {
+  if (!readOnly && name && path.basename(name) === name) pendingAttachmentCleanup.add(name);
+}
+
+function cleanupUnusedAttachments() {
+  if (pendingAttachmentCleanup.size === 0) return;
+
+  // 读取附件时用 basename，Windows 上同名文件也可能写成不同大小写。
+  const key = (name: string) => {
+    const base = path.basename(name);
+    return process.platform === 'win32' ? base.toLowerCase() : base;
+  };
+  const referenced = new Set<string>();
+  if (db.settings.skinImage) referenced.add(key(db.settings.skinImage));
+  for (const queue of db.queues) {
+    for (const note of [...queue.notes, ...queue.archive]) {
+      if (note.image) referenced.add(key(note.image));
+    }
+  }
+
+  for (const name of pendingAttachmentCleanup) {
+    if (!referenced.has(key(name))) removeAttachment(name);
+  }
+  pendingAttachmentCleanup.clear();
+}
+
+/** 换图 / 清图。便签成功写盘后再考虑删旧图。 */
 export function setNoteImage(queueId: string, id: string, fileName: string | null) {
-  let old: string | null = null;
   mutate((d) => {
     const note = d.queues.find((q) => q.id === queueId)?.notes.find((n) => n.id === id);
     if (!note) return;
-    old = note.image;
+    const old = note.image;
+    if (old !== fileName) scheduleAttachmentCleanup(old);
     note.image = fileName;
   });
-  if (old && old !== fileName) removeAttachment(old);
+}
+
+export function setSkinImage(fileName: string | null) {
+  mutate((d) => {
+    const old = d.settings.skinImage;
+    if (old !== fileName) scheduleAttachmentCleanup(old);
+    d.settings = { ...d.settings, skinImage: fileName };
+  });
 }
 
 /* ── 队列 ──
@@ -261,15 +331,13 @@ export function renameQueue(id: string, name: string) {
  */
 export function deleteQueue(id: string): { ok: boolean; reason?: string } {
   if (getDb().queues.length <= 1) return { ok: false, reason: '至少保留一个队列' };
-  const gone: string[] = [];
   mutate((d) => {
     const idx = d.queues.findIndex((x) => x.id === id);
     if (idx < 0) return;
-    for (const n of d.queues[idx].notes) if (n.image) gone.push(n.image);
-    for (const n of d.queues[idx].archive) if (n.image) gone.push(n.image);
+    for (const n of d.queues[idx].notes) scheduleAttachmentCleanup(n.image);
+    for (const n of d.queues[idx].archive) scheduleAttachmentCleanup(n.image);
     d.queues.splice(idx, 1);
   });
-  for (const f of gone) removeAttachment(f);
   return { ok: true };
 }
 
@@ -334,6 +402,9 @@ export function setDataDir(dir: string | null): { ok: boolean; dir: string; reas
   }
 
   flushSync();
+  if (dirty && !readOnly) {
+    return { ok: false, dir: path.dirname(from), reason: '当前便签未能保存，数据目录未切换' };
+  }
 
   const hadFile = fs.existsSync(from);
   const hadAtt = fs.existsSync(fromAtt);
@@ -352,33 +423,44 @@ export function setDataDir(dir: string | null): { ok: boolean; dir: string; reas
       movedFile = true;
     }
     writeLocation(dir);
-    initStore();
-    return { ok: true, dir: getDataDir() };
   } catch (err) {
+    const cause = err instanceof Error ? err.cause ?? err : err;
+    logError(`store 换数据目录失败 (${from} → ${target})`, cause);
+    let rollbackFailed = false;
     if (movedFile) {
       try {
         moveFile(target, from);
-      } catch {
-        // 搬回去也失败了：两份都在，只能记下来让用户自己收拾
-        console.error('[store] 换目录失败且 data.json 回滚失败，两处都可能留有一份');
+      } catch (rollbackErr) {
+        rollbackFailed = true;
+        logError(`store 回滚数据文件失败 (${target} → ${from})`, rollbackErr);
       }
     }
     if (movedAtt) {
       try {
         moveDir(toAtt, fromAtt);
-      } catch {
-        console.error('[store] 换目录失败且附件回滚失败，两处都可能留有图片');
+      } catch (rollbackErr) {
+        rollbackFailed = true;
+        logError(`store 回滚附件失败 (${toAtt} → ${fromAtt})`, rollbackErr);
       }
     }
     return {
       ok: false,
       dir: path.dirname(from),
-      reason: err instanceof Error ? err.message : String(err),
+      reason: rollbackFailed
+        ? `换目录失败，部分文件未能搬回。请检查 ${path.dirname(from)} 和 ${path.dirname(target)}`
+        : err instanceof Error ? err.message : String(err),
     };
   }
+  dataFile = target;
+  initStore();
+  const state = getLoadState();
+  if (state.kind === 'unreadable') {
+    return { ok: false, dir: getDataDir(), reason: `文件已搬迁，但无法读取 ${state.file}：${state.reason}` };
+  }
+  return { ok: true, dir: getDataDir() };
 }
 
-export function getLoadState(): LoadState {
+export function getLoadState(): StoreLoadState {
   return loadState;
 }
 
@@ -400,12 +482,13 @@ function scheduleSave() {
   }, 250);
 }
 
-export function flushSync() {
+export function flushSync(): boolean {
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  if (!dirty || !dataFile || readOnly) return;
+  if (!dirty) return true;
+  if (!dataFile || readOnly) return false;
   const tmp = dataFile + '.tmp';
   try {
     fs.mkdirSync(path.dirname(dataFile), { recursive: true });
@@ -421,7 +504,10 @@ export function flushSync() {
     } catch {
       /* 本来就在错误处理路径上，通知再抛就真没兜底了 */
     }
+    return false;
   }
+  cleanupUnusedAttachments();
+  return true;
 }
 
 export function mutate(fn: (d: NoteDb) => void): NoteDb {
@@ -436,12 +522,11 @@ export function mutate(fn: (d: NoteDb) => void): NoteDb {
  */
 export function createNote(
   queueId: string,
-  partial: { title?: string; text?: string; color?: NoteColor } = {},
+  partial: { text?: string; color?: NoteColor } = {},
   atTop = false
 ): Note | null {
   const note: Note = {
     id: newId(),
-    title: partial.title ?? '',
     text: partial.text ?? '',
     color: partial.color ?? 'amber',
     createdAt: Date.now(),
@@ -465,12 +550,11 @@ export function createNote(
 export function updateNote(
   queueId: string,
   id: string,
-  patch: { title?: string; text?: string; color?: NoteColor; imageRatio?: number }
+  patch: { text?: string; color?: NoteColor; imageRatio?: number }
 ) {
   mutate((d) => {
     const note = d.queues.find((q) => q.id === queueId)?.notes.find((n) => n.id === id);
     if (!note) return;
-    if (typeof patch.title === 'string') note.title = patch.title;
     if (typeof patch.text === 'string') note.text = patch.text;
     if (isColor(patch.color)) note.color = patch.color;
     // 拖滑杆是连续调用，每次都要收回范围 —— 越界的值一旦落盘，

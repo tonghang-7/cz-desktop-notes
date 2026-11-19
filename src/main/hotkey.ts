@@ -92,7 +92,7 @@ export function getActiveHotkey() {
   return active;
 }
 
-export function unregisterAll() {
-  globalShortcut.unregisterAll();
+export function unregisterHotkey() {
+  if (active) globalShortcut.unregister(active);
   active = '';
 }

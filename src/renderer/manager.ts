@@ -14,6 +14,7 @@ import {
   type Note,
   type NoteColor,
   type NoteDb,
+  type NoteEditorTarget,
   type Queue,
 } from '../shared/types';
 import { applyAllSkin } from './skin-runtime';
@@ -101,19 +102,17 @@ function fmtTime(ts: number) {
 }
 
 /**
- * 编辑器里当前这一张的完整内容。
- *
- * 标题和正文一起返回，因为它们共用一次落盘 —— 分开写会互相取消防抖，
- * 打标题时正文那半截就丢了。
+ * 编辑器里当前这一张的正文。
  *
  * id 读的是 textarea 自己身上的 noteId，不是 selectedId（原因见 flushCurrent）。
  */
-function currentEditor(): { id: string; title: string; text: string } | null {
-  const ta = editor.querySelector<HTMLTextAreaElement>('.ed__text');
+type EditorSnapshot = { queueId: string; id: string; text: string };
+
+function editorSnapshot(ta: HTMLTextAreaElement | null): EditorSnapshot | null {
   const id = ta?.dataset.noteId;
-  if (!ta || !id) return null;
-  const ti = editor.querySelector<HTMLInputElement>('.ed__title');
-  return { id, title: ti?.value ?? '', text: ta.value };
+  const queueId = ta?.dataset.queueId;
+  if (!ta || !id || !queueId) return null;
+  return { queueId, id, text: ta.value };
 }
 
 function clearDropMarks() {
@@ -140,13 +139,13 @@ function renderList() {
 
     const text = document.createElement('span');
     text.className = 'it__text';
-    // 列表只认标题。没有标题显示「空标题」而不是回落到正文首行 ——
-    // 回落会让「没起名」和「起了名」长得一样，反而看不出哪条还没整理。
-    if (note.title.trim()) {
-      text.textContent = note.title;
-      text.title = note.title;
+    // 没有独立标题了，列表拿正文开头当摘要 —— 两行截断，够认出是哪张纸。
+    const body = note.text.trim();
+    if (body) {
+      text.textContent = body;
+      text.title = body;
     } else {
-      text.textContent = '空标题';
+      text.textContent = '空白便签';
       text.classList.add('is-empty');
     }
 
@@ -346,54 +345,20 @@ function renderEditor() {
 
   meta.append(pos, colors);
 
-  const titleInput = document.createElement('input');
-  titleInput.type = 'text';
-  titleInput.className = 'ed__title';
-  titleInput.placeholder = '给这张起个标题（列表里显示的就是它）';
-  titleInput.value = note.title;
-  titleInput.dataset.noteId = note.id;
-  titleInput.spellcheck = false;
-
   const ta = document.createElement('textarea');
   ta.className = 'ed__text';
   ta.placeholder = '写下你的疑问、想法，或者任何要记住的事…';
   ta.value = note.text;
   ta.dataset.noteId = note.id;
+  ta.dataset.queueId = currentQueueId;
   ta.spellcheck = false;
 
-  /**
-   * 一次拿全标题和正文。
-   *
-   * 两个输入框共用一个防抖器 —— 分开写的话，改标题会取消掉正在排队的正文保存，
-   * 那半截字就丢了。所以每次落盘都把两份一起交上去，值没变的那份重复写一次无害。
-   */
-  const snap = () => {
-    const id = ta.dataset.noteId;
-    return id ? { id, title: titleInput.value, text: ta.value } : null;
-  };
-
-  titleInput.addEventListener('input', () => {
-    const s = snap();
-    if (s) scheduleSave(s);
-  });
-  titleInput.addEventListener('blur', () => {
-    const s = snap();
-    if (s) flushSave(s);
-  });
-  // 单行框按回车本来没反应，但默认行为会把焦点送走 —— 顺手送到正文，符合书写顺序
-  titleInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      ta.focus();
-    }
-  });
-
   ta.addEventListener('input', () => {
-    const s = snap();
+    const s = editorSnapshot(ta);
     if (s) scheduleSave(s);
   });
   ta.addEventListener('blur', () => {
-    const s = snap();
+    const s = editorSnapshot(ta);
     if (s) flushSave(s);
   });
 
@@ -446,8 +411,8 @@ function renderEditor() {
    * 不跟的话，拖滑杆只有便签窗在变，而编辑器里那张图纹丝不动 —— 看不出
    * 「图小了、字就多了」这件事。
    *
-   * 基准 240 是量出来的：这个窗口给编辑器的高度约 490px，图 + 滑杆 + 标题 + 时限 +
-   * 底栏已经吃掉 330，剩下必须够正文写五六行。58% 落在 139px，和卡片上的观感接近。
+   * 基准 240 是量出来的：这个窗口给编辑器的高度约 490px，图 + 滑杆 + 时限 +
+   * 底栏已经吃掉一小半，剩下必须够正文写五六行。58% 落在 139px，和卡片上的观感接近。
    */
   const EDITOR_IMG_BASE = 240;
   const previewEditorImg = (pct: number) => {
@@ -527,14 +492,11 @@ function renderEditor() {
   doneBtn.addEventListener('click', () => void completeNote(note.id));
 
   foot.append(saved, doneBtn);
-  wrap.append(meta, imgWrap, titleInput, ta, dueRow, foot);
+  wrap.append(meta, imgWrap, ta, dueRow, foot);
   editor.appendChild(wrap);
 
   updateEditorMeta(note);
-  // 新建出来的是空的：光标先落标题，因为「这张叫什么」是第一个决定。
-  // 点已有卡片进来多半是接着改内容，就还落在正文。
-  if (!note.title && !note.text) titleInput.focus();
-  else ta.focus();
+  ta.focus();
 }
 
 function renderArchive() {
@@ -547,9 +509,10 @@ function renderArchive() {
 
     const text = document.createElement('span');
     text.className = 'ar__text';
-    text.textContent = note.title.trim() || '空标题';
-    // 悬停看正文：归档里光有标题常常想不起当时写的是什么
-    text.title = note.title.trim() || note.text;
+    const body = note.text.trim();
+    text.textContent = body || '空白便签';
+    // 悬停看全文：列表里只截了一行，归档里常常想不起当时写的是什么
+    text.title = note.text;
 
     const time = document.createElement('span');
     time.className = 'ar__time';
@@ -799,17 +762,12 @@ function flashSaved() {
   savedTimer = window.setTimeout(() => el.classList.remove('is-on'), 1200);
 }
 
-async function commitEditor(snap: { id: string; title: string; text: string }) {
-  if (!snap.id) return;
-  await window.api.updateNote(
-    snap.id,
-    { title: snap.title, text: snap.text },
-    currentQueueId
-  );
+async function commitEditor(snap: EditorSnapshot) {
+  await window.api.updateNote(snap.id, { text: snap.text }, snap.queueId);
   flashSaved();
 }
 
-function scheduleSave(snap: { id: string; title: string; text: string }) {
+function scheduleSave(snap: EditorSnapshot) {
   if (saveTimer) window.clearTimeout(saveTimer);
   // 停顿 420ms 才落盘。打中文时每敲一个字都触发一次 input，
   // 不防抖就是一字一次 IPC、一次全量写盘。
@@ -819,7 +777,7 @@ function scheduleSave(snap: { id: string; title: string; text: string }) {
   }, 420);
 }
 
-function flushSave(snap: { id: string; title: string; text: string }) {
+function flushSave(snap: EditorSnapshot) {
   if (saveTimer) {
     window.clearTimeout(saveTimer);
     saveTimer = null;
@@ -837,8 +795,8 @@ function flushSave(snap: { id: string; title: string; text: string }) {
  * 就会把旧内容写进新卡片。
  */
 function flushCurrent() {
-  const cur = currentEditor();
-  if (cur) flushSave(cur);
+  const snap = editorSnapshot(editor.querySelector<HTMLTextAreaElement>('.ed__text'));
+  if (snap) flushSave(snap);
 }
 
 function select(id: string) {
@@ -1228,6 +1186,33 @@ function wire() {
   });
 }
 
+let focusRequest = 0;
+
+async function focusEditorTarget(target: NoteEditorTarget) {
+  const request = ++focusRequest;
+  const latest = await window.api.getDb();
+  if (request !== focusRequest) return;
+  const queue = latest.queues.find((q) => q.id === target.queueId);
+  if (!queue?.notes.some((note) => note.id === target.noteId)) return;
+
+  if (currentQueueId !== target.queueId || selectedId !== target.noteId) {
+    flushCurrent();
+    db = latest;
+    currentQueueId = target.queueId;
+    selectedId = target.noteId;
+    renderedEditorId = null;
+    render();
+  }
+  requestAnimationFrame(() => {
+    if (request !== focusRequest || currentQueueId !== target.queueId || selectedId !== target.noteId) return;
+    const ta = editor.querySelector<HTMLTextAreaElement>('.ed__text');
+    if (!ta) return;
+    ta.focus();
+    const len = ta.value.length;
+    ta.setSelectionRange(len, len);
+  });
+}
+
 async function boot() {
   db = await window.api.getDb();
   currentQueueId = db.queues[0]!.id;
@@ -1235,29 +1220,6 @@ async function boot() {
   await applyAllSkin(db);
   render();
   wire();
-
-  // 从便签窗点卡片 / 新建便签进来：把光标直接放进编辑器，
-  // 省掉「点开管理窗 → 还得再点一下编辑区」这一步。
-  window.api.onFocusEditor(() => {
-    requestAnimationFrame(() => {
-      const ta = editor.querySelector<HTMLTextAreaElement>('.ed__text');
-      if (!ta) return;
-      ta.focus();
-      // 光标落到末尾：点进来多半是想接着往下写
-      const len = ta.value.length;
-      ta.setSelectionRange(len, len);
-    });
-  });
-
-  const key = await window.api.getHotkey();
-  cfgHotkey.textContent = key ? prettyHotkey(key) : '未绑定';
-  hint.textContent = key
-    ? `按 ${prettyHotkey(key)} 随时呼出便签`
-    : '热键未绑定成功，可从托盘图标呼出';
-  cfgAutoLaunch.checked = await window.api.getAutoLaunch();
-  cfgDataDir.textContent = await window.api.getDataDir();
-  // 面板宽度有限，路径会被截断 —— 完整的悬停可见
-  cfgDataDir.title = cfgDataDir.textContent;
 
   window.api.onDbChanged((next) => {
     db = next;
@@ -1271,6 +1233,18 @@ async function boot() {
     }
     render();
   });
+  window.api.onFocusEditor((target) => void focusEditorTarget(target));
+  window.api.managerReady();
+
+  const key = await window.api.getHotkey();
+  cfgHotkey.textContent = key ? prettyHotkey(key) : '未绑定';
+  hint.textContent = key
+    ? `按 ${prettyHotkey(key)} 随时呼出便签`
+    : '热键未绑定成功，可从托盘图标呼出';
+  cfgAutoLaunch.checked = await window.api.getAutoLaunch();
+  cfgDataDir.textContent = await window.api.getDataDir();
+  // 面板宽度有限，路径会被截断 —— 完整的悬停可见
+  cfgDataDir.title = cfgDataDir.textContent;
 }
 
 void boot();

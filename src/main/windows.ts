@@ -1,12 +1,14 @@
 import { BrowserWindow, screen, shell } from 'electron';
 import path from 'node:path';
 import { getDb, setQueueBounds } from './store';
-import { windowSizeFor, type Queue } from '../shared/types';
+import { windowSizeFor, type NoteEditorTarget, type Queue } from '../shared/types';
 import { trace } from './perf';
 
 /** 一个队列一扇便签窗。多个队列 = 多条任务线并行，窗口互不干扰。 */
 const notepads = new Map<string, BrowserWindow>();
 let manager: BrowserWindow | null = null;
+let managerReady = false;
+let pendingEditorTarget: NoteEditorTarget | null = null;
 let skinWin: BrowserWindow | null = null;
 let quitting = false;
 /** 最后聚焦的那个便签窗。剪贴板捕获要贴进「用户正在看的那一叠」。 */
@@ -299,6 +301,9 @@ export function createManager(): BrowserWindow {
     },
   });
 
+  manager.webContents.on('did-start-loading', () => {
+    managerReady = false;
+  });
   manager.loadFile(path.join(__dirname, '../renderer/manager.html'));
 
   manager.webContents.on('console-message', (event) => {
@@ -310,6 +315,8 @@ export function createManager(): BrowserWindow {
 
   manager.on('closed', () => {
     manager = null;
+    managerReady = false;
+    pendingEditorTarget = null;
   });
 
   manager.webContents.setWindowOpenHandler(({ url }) => {
@@ -320,18 +327,25 @@ export function createManager(): BrowserWindow {
   return manager;
 }
 
-export function showManager(focusEditor = false) {
+function sendEditorTarget() {
+  if (!manager || !managerReady || !pendingEditorTarget) return;
+  manager.webContents.send('manager:focus-editor', pendingEditorTarget);
+  pendingEditorTarget = null;
+}
+
+export function markManagerReady(sender: Electron.WebContents) {
+  if (manager?.webContents !== sender) return;
+  managerReady = true;
+  sendEditorTarget();
+}
+
+export function showManager(target?: NoteEditorTarget) {
   const win = createManager();
   if (!win.isVisible()) win.show();
   win.focus();
-  if (!focusEditor) return;
-  // 从便签窗点卡片/新建进来的：意图是「改这一张」，把光标直接放进编辑器。
-  // 工具栏「管理」按钮进来不传这个标志 —— 那时用户可能只想翻列表。
-  if (win.webContents.isLoading()) {
-    win.webContents.once('did-finish-load', () => win.webContents.send('manager:focus-editor'));
-  } else {
-    win.webContents.send('manager:focus-editor');
-  }
+  if (!target) return;
+  pendingEditorTarget = target;
+  sendEditorTarget();
 }
 
 /**

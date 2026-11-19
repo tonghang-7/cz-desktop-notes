@@ -11,7 +11,7 @@
  *   3. 路径穿越检查 —— 解包时挡掉 ../ 和绝对路径
  *
  * 失败怎么退：替换前把 app 改名成 app.old，替换时任何一步出错就改回来。
- * 成功启动后由 applyPending() 自己清理 app.old。
+ * 新版初始化成功后由 confirmPendingUpdate() 清理 app.old。
  */
 import { app, net } from 'electron';
 import { createHash } from 'node:crypto';
@@ -61,8 +61,11 @@ function rm(target: string) {
   }
 }
 
+let checkedUpdate: UpdateInfo | null = null;
+
 /** 查有没有新版。用 net.fetch 而不是 Node 的 fetch —— 它走 Chromium 的网络栈，能吃到系统代理。 */
 export async function checkUpdate(): Promise<UpdateInfo | null> {
+  checkedUpdate = null;
   const res = await net.fetch(API, {
     headers: { accept: 'application/vnd.github+json', 'user-agent': 'cz-desktop-notes' },
   });
@@ -78,59 +81,109 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
 
   const asset = (rel.assets || []).find((a) => a.name.startsWith('app-') && a.name.endsWith('.tar.gz'));
   if (!asset) throw new Error('这个版本没提供增量包，只能下完整包');
+  const digest = typeof asset.digest === 'string' ? /^sha256:([a-f\d]{64})$/i.exec(asset.digest) : null;
+  if (!digest) throw new Error('增量包缺少有效的 SHA-256 摘要，请从发布页下载完整包');
 
-  return {
+  checkedUpdate = {
     version: latest,
     size: asset.size,
     url: asset.browser_download_url,
-    sha256: (asset.digest || '').replace(/^sha256:/, ''),
+    sha256: digest[1].toLowerCase(),
     // electronVersion 在 update.json 里，下载后才知道；这里先占位
     electronVersion: '',
     notes: rel.body || '',
   };
+  return checkedUpdate;
 }
 
-/**
- * 下载增量包并解到 update/app.new/。不替换，只是准备好。
- * @returns 包里的 electronVersion
- */
+let downloading = false;
+
+/** 下载并校验增量包。全部准备好后才替换待安装的更新。 */
 export async function downloadUpdate(info: UpdateInfo): Promise<string> {
+  if (downloading) throw new Error('已有更新正在下载，请稍后再试');
+  const checked = checkedUpdate;
+  if (!checked || info?.version !== checked.version || info.url !== checked.url || info.sha256 !== checked.sha256) {
+    throw new Error('更新信息已失效，请重新检查更新');
+  }
+  downloading = true;
+  try {
+    return await prepareUpdate(checked);
+  } finally {
+    downloading = false;
+  }
+}
+
+async function prepareUpdate(info: UpdateInfo): Promise<string> {
   const res = await net.fetch(info.url);
   if (!res.ok) throw new Error(`下载失败 ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
 
-  if (info.sha256) {
-    const got = createHash('sha256').update(buf).digest('hex');
-    if (got !== info.sha256) throw new Error('sha256 对不上，包可能被改过，已丢弃');
-  }
+  const got = createHash('sha256').update(buf).digest('hex');
+  if (got !== info.sha256) throw new Error('SHA-256 校验失败，已丢弃增量包');
 
   const dir = updateDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const workDir = fs.mkdtempSync(path.join(dir, 'download-'));
+  const incoming = path.join(workDir, 'incoming');
+  const incomingPending = path.join(workDir, 'incoming.json');
+  const backup = path.join(workDir, 'previous');
+  const backupPending = path.join(workDir, 'previous.json');
   const staged = path.join(dir, 'app.new');
-  rm(staged);
-  fs.mkdirSync(staged, { recursive: true });
-  const written = extractTarGz(buf, staged);
-  if (written === 0) throw new Error('包里没有任何文件');
+  const pending = pendingFile();
+  let backedUpPending = false;
+  let backedUpPackage = false;
+  let movedIncoming = false;
+  let keepBackup = false;
+  try {
+    fs.mkdirSync(incoming);
+    if (extractTarGz(buf, incoming) === 0) throw new Error('包里没有任何文件');
 
-  const metaFile = path.join(staged, 'update.json');
-  if (!fs.existsSync(metaFile)) throw new Error('包里没有 update.json');
-  const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as {
-    version?: string;
-    electronVersion?: string;
-  };
-  if (!meta.version) throw new Error('update.json 里没写版本');
+    const metaFile = path.join(incoming, 'update.json');
+    if (!fs.existsSync(metaFile)) throw new Error('包里没有 update.json');
+    const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8')) as {
+      version?: string;
+      electronVersion?: string;
+    };
+    if (meta.version !== info.version) throw new Error('增量包版本与发布版本不一致');
 
-  const runtime = process.versions.electron;
-  if (meta.electronVersion && meta.electronVersion !== runtime) {
-    throw new Error(
-      `这个更新要 Electron ${meta.electronVersion}，你现在是 ${runtime} —— 得下完整包`
+    const runtime = process.versions.electron;
+    if (!meta.electronVersion) throw new Error('增量包缺少 Electron 版本，请从发布页下载完整包');
+    if (meta.electronVersion !== runtime) {
+      throw new Error(
+        `这个更新要 Electron ${meta.electronVersion}，你现在是 ${runtime} —— 得下完整包`
+      );
+    }
+
+    fs.writeFileSync(
+      incomingPending,
+      JSON.stringify({ version: meta.version, electronVersion: meta.electronVersion, at: Date.now() })
     );
+    // 先收起旧记录，最后才放出新记录。启动时只能看到已就位的一整套更新。
+    if (fs.existsSync(pending)) {
+      fs.renameSync(pending, backupPending);
+      backedUpPending = true;
+    }
+    if (fs.existsSync(staged)) {
+      fs.renameSync(staged, backup);
+      backedUpPackage = true;
+    }
+    fs.renameSync(incoming, staged);
+    movedIncoming = true;
+    fs.renameSync(incomingPending, pending);
+    return meta.electronVersion;
+  } catch (err) {
+    try {
+      if (movedIncoming) fs.renameSync(staged, incoming);
+      if (backedUpPackage) fs.renameSync(backup, staged);
+      if (backedUpPending) fs.renameSync(backupPending, pending);
+    } catch (rollbackErr) {
+      keepBackup = true;
+      logError(`update:download:rollback (${workDir})`, rollbackErr);
+    }
+    throw err;
+  } finally {
+    if (!keepBackup) rm(workDir);
   }
-
-  fs.writeFileSync(
-    pendingFile(),
-    JSON.stringify({ version: meta.version, electronVersion: meta.electronVersion, at: Date.now() })
-  );
-  return meta.electronVersion || '';
 }
 
 /** 有没有已经下好、等着下次启动安装的更新 */
@@ -145,22 +198,16 @@ export function readPending(): { version: string; at: number } | null {
 /**
  * 启动时调用（必须在创建窗口之前）。返回这次干了什么。
  *
- * - 上次替换过、这次能跑到这里 = 新版起来了 → 清掉 app.old
+ * - 上次替换过 → 等新版便签窗就绪后确认，再清理 app.old
  * - 有 pending 且 app.new 就位 → 替换，然后由调用方 relaunch
  */
-export function applyPendingUpdate(): 'applied' | 'cleaned' | 'none' | 'failed' {
+export function applyPendingUpdate(): 'applied' | 'awaiting-confirmation' | 'none' | 'failed' {
   if (!app.isPackaged) return 'none'; // 开发模式不动，那是源码目录
 
   const appPath = app.getAppPath(); // ...\resources\app
   const oldPath = `${appPath}.old`;
 
-  // 新版能跑到这里，说明上一次安装是成功的
-  if (fs.existsSync(applyingFile())) {
-    rm(applyingFile());
-    rm(oldPath);
-    rm(`${appPath}.staged`);
-    return 'cleaned';
-  }
+  if (fs.existsSync(applyingFile())) return 'awaiting-confirmation';
 
   const pending = readPending();
   const staged = path.join(updateDir(), 'app.new');
@@ -179,12 +226,16 @@ export function applyPendingUpdate(): 'applied' | 'cleaned' | 'none' | 'failed' 
     //   而我本地测试时 userData 和程序都在 E 盘，掩盖了这个 bug。）
     fs.cpSync(staged, local, { recursive: true });
 
-    fs.renameSync(appPath, oldPath); // 想反悔就把它改回来
-    fs.writeFileSync(applyingFile(), JSON.stringify({ from: app.getVersion(), to: pending.version }));
+    fs.renameSync(appPath, oldPath);
     try {
+      fs.writeFileSync(applyingFile(), JSON.stringify({ from: app.getVersion(), to: pending.version }));
       fs.renameSync(local, appPath); // 同盘，瞬间完成
     } catch (err) {
-      fs.renameSync(oldPath, appPath); // 换不上就退回原样
+      try {
+        fs.renameSync(oldPath, appPath);
+      } catch (rollbackErr) {
+        logError(`update:rollback (${oldPath} → ${appPath})`, rollbackErr);
+      }
       throw err;
     }
     rm(pendingFile());
@@ -218,10 +269,25 @@ export function lastUpdateError(): string | null {
   }
 }
 
-/** 清掉上次遗留的 app.old（替换成功但当时没来得及删） */
-export function cleanupLeftovers() {
-  if (!app.isPackaged) return;
-  const oldPath = `${app.getAppPath()}.old`;
-  if (fs.existsSync(oldPath)) rm(oldPath);
-  rm(path.join(updateDir(), 'app.new'));
+/** 便签窗确认就绪后，才清理这一轮更新的旧版备份。 */
+export function confirmPendingUpdate(): boolean {
+  if (!app.isPackaged) return false;
+  try {
+    const marker = JSON.parse(fs.readFileSync(applyingFile(), 'utf8')) as { to?: string };
+    if (marker.to !== app.getVersion()) throw new Error('运行版本与待确认版本不一致，保留旧版备份');
+
+    // 安装时可能没能删掉待安装记录。只清已安装的版本，保留后来准备的更新。
+    if (readPending()?.version === marker.to) {
+      fs.rmSync(pendingFile(), { force: true });
+      fs.rmSync(path.join(updateDir(), 'app.new'), { recursive: true, force: true });
+    }
+    const appPath = app.getAppPath();
+    fs.rmSync(`${appPath}.staged`, { recursive: true, force: true });
+    fs.rmSync(`${appPath}.old`, { recursive: true, force: true });
+    fs.rmSync(applyingFile(), { force: true });
+    return true;
+  } catch (err) {
+    logError('update:confirm', err);
+    return false;
+  }
 }

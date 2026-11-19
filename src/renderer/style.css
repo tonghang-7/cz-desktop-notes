@@ -112,6 +112,14 @@ body.np {
   padding: 0 var(--pad);
 }
 
+/*
+ * 顶部那条现在有底了。
+ *
+ * 队列名一直存在（管理窗 chip、托盘、窗口 title 里都有），但便签窗是
+ * frame:false + transparent，系统标题栏根本不显示 —— 多开几扇窗就分不清哪扇是哪叠。
+ * 铺一层淡纸色：既把「这里能拖」摆到明面上，也让这扇窗有名字。
+ * 高度仍是 34px：windowSizeFor 按这个数算窗口，动它卡片会被裁。
+ */
 .np__bar {
   position: relative;
   height: var(--bar-h);
@@ -120,13 +128,34 @@ body.np {
   align-items: center;
   justify-content: space-between;
   -webkit-app-region: drag;
-  padding-left: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  /* 不透明：透明窗口下留一点透明度会透出深色壁纸，淡黄会发灰 */
+  background: #faeeda;
+  border: 1px solid rgba(150, 110, 40, 0.2);
 }
 
-/*
- * 窗口可以拖的地方就是这一条，但之前它完全是透明的 —— 没人看得出哪里能抓。
- * 放一个居中的短横条当把手：够明显，又不至于像工具栏那样把这张「纸」压出边框。
- */
+.np__lead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  /* 横杠绝对居中在 50% 处：左侧内容不能越过这条线，否则长队列名会压到把手上 */
+  max-width: calc(50% - 30px);
+}
+
+.np__queue {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #4a3a12;
+}
+
+/* 居中的短横条仍是「抓这里」的提示，0.45 是定稿值，别再调深浅 */
 .np__grip {
   position: absolute;
   left: 50%;
@@ -140,10 +169,12 @@ body.np {
 }
 
 .np__count {
+  flex: 0 0 auto;
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: rgba(60, 53, 39, 0.42);
+  color: rgba(74, 58, 18, 0.6);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .np__actions {
@@ -326,23 +357,6 @@ body.np {
 .card__text--empty {
   color: rgba(63, 54, 38, 0.3);
   font-style: italic;
-}
-
-/*
- * 卡片上的标题：比正文大一号，最多两行，超出省略。
- * 它排在 .card__text 的流里（不是绝对定位），所以两行标题会把正文往下推两行。
- * 有图时要给字留地方，就把图的比例调小 —— 那正是 imageRatio 滑杆的用途。
- */
-.card__title {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.32;
-  margin-bottom: 6px;
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
 }
 
 .card.enter {
@@ -687,40 +701,6 @@ body.mg {
 .ed__color.is-on {
   border-color: rgba(60, 53, 39, 0.7);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9) inset;
-}
-
-/*
- * 标题输入框。
- *
- * 单行、比正文大一档，只画一条底边 —— 它读起来应该像这张纸抬头写的一行字，
- * 而不是又一个要填的方框。正文那个带全边框的盒子还是最重的东西。
- *
- * flex: 0 0 auto 让它不参与伸缩，剩下的高度全归 .ed__text 的 flex: 1。
- */
-.ed__title {
-  flex: 0 0 auto;
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 4px 2px 8px;
-  border: none;
-  border-bottom: 1px solid rgba(60, 53, 39, 0.26);
-  background: transparent;
-  color: #2f2a20;
-  font-family: inherit;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.4;
-  outline: none;
-  transition: border-color 0.12s ease;
-}
-
-.ed__title:focus {
-  border-bottom-color: rgba(180, 83, 9, 0.55);
-}
-
-.ed__title::placeholder {
-  color: rgba(60, 53, 39, 0.32);
-  font-weight: 400;
 }
 
 .ed__text {

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Note, NoteColor, NoteDb, Queue, Settings } from '../shared/types';
+import type { Note, NoteColor, NoteDb, NoteEditorTarget, Queue, Settings } from '../shared/types';
 
 /**
  * 这一扇窗属于哪个队列。
@@ -47,7 +47,7 @@ const api = {
     invoke('note:create', pick(queueId), text, color),
   updateNote: (
     id: string,
-    patch: { title?: string; text?: string; color?: NoteColor; imageRatio?: number },
+    patch: { text?: string; color?: NoteColor; imageRatio?: number },
     queueId?: string
   ): Promise<void> => invoke('note:update', pick(queueId), id, patch),
   completeNote: (id: string, queueId?: string): Promise<void> =>
@@ -142,14 +142,16 @@ const api = {
   lastUpdateError: (): Promise<string | null> => invoke('update:lastError'),
   /** 重启应用（安装更新后由用户点） */
   relaunchApp: (): Promise<void> => invoke('update:relaunch'),
-  /** fromCard=true：从便签窗点卡片/新建进来，管理窗打开后直接把光标放进编辑器 */
-  openManager: (fromCard?: boolean): Promise<void> =>
-    invoke('ui:open-manager', fromCard),
-  onFocusEditor: (cb: () => void) => {
-    const listener = () => cb();
+  /** 从便签窗打开指定便签，队列由主进程根据来源窗口确定。 */
+  openManager: (fromCard?: boolean, noteId?: string): Promise<void> =>
+    invoke('ui:open-manager', fromCard, noteId),
+  onFocusEditor: (cb: (target: NoteEditorTarget) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, target: NoteEditorTarget) => cb(target);
     ipcRenderer.on('manager:focus-editor', listener);
     return () => ipcRenderer.off('manager:focus-editor', listener);
   },
+  managerReady: () => ipcRenderer.send('manager:ready'),
+  notepadReady: () => ipcRenderer.send('notepad:ready'),
   openSkinWindow: (): Promise<void> => invoke('ui:open-skin'),
   hideNotepad: (): Promise<void> => invoke('ui:hide-notepad'),
   showNotepad: (): Promise<void> => invoke('ui:show-notepad'),

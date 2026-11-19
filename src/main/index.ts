@@ -1,11 +1,13 @@
-import { app, clipboard, dialog, globalShortcut, ipcMain, Notification, shell } from 'electron';
+import {
+  app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Notification, shell, type IpcMainEvent,
+} from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as store from './store';
 import { DB_VERSION } from './db-format';
 import * as W from './windows';
-import { rebindHotkey, unregisterAll, getActiveHotkey, setHotkey } from './hotkey';
+import { rebindHotkey, unregisterHotkey, getActiveHotkey, setHotkey } from './hotkey';
 import { createTray, destroyTray, refreshTray, type TrayHandlers } from './tray';
 import * as updater from './updater';
 import { trace } from './perf';
@@ -71,20 +73,9 @@ function mimeOf(name: string) {
   return 'image/png';
 }
 
-/**
- * 删掉一张背景图。文件名来自 settings（可以被手改 data.json 写坏），
- * 所以必须 basename —— 否则一个 `../data.json` 就把数据库删了。
- */
-function dropSkinFile(name: string) {
-  try {
-    fs.unlinkSync(path.join(store.attachmentsDir(), path.basename(name)));
-  } catch {
-    // 文件本来就不在：不是错误
-  }
-}
-
 /** 捕获热键。选 V 是因为带「粘贴 / 捕获」的语义，也不和呼出热键的候选撞车。 */
 const CAPTURE_ACCEL = 'Control+Alt+V';
+let captureRegistered = false;
 
 /**
  * 把剪贴板变成一张置顶便签。图优先，没图就读文字，两样都没有就什么都不做。
@@ -190,7 +181,7 @@ function registerIpc() {
       _e,
       queueId: string,
       id: string,
-      patch: { title?: string; text?: string; color?: NoteColor; imageRatio?: number }
+      patch: { text?: string; color?: NoteColor; imageRatio?: number }
     ) => {
       store.updateNote(queueId, id, patch);
       W.broadcastDb();
@@ -294,30 +285,27 @@ function registerIpc() {
     }
   });
 
-  /** 存渲染进程压好的图，顺手删掉上一张 —— 一张图只归一个皮肤，留着就是纯泄漏。 */
+  /** 存渲染进程压好的图，旧图由存储层在写盘后清理。 */
   ipcMain.handle('skin:save', (_e, dataUrl: string) => {
     const m = /^data:image\/(png|jpeg|webp|bmp);base64,(.+)$/.exec(String(dataUrl ?? ''));
     if (!m) return { ok: false, reason: '图片格式认不出来' };
     const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
     const name = `skin-${randomUUID()}.${ext}`;
-    const old = store.getDb().settings.skinImage;
     try {
       const dir = store.attachmentsDir();
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, name), Buffer.from(m[2], 'base64'));
     } catch (err) {
+      logError('skin:save', err);
       return { ok: false, reason: err instanceof Error ? err.message : String(err) };
     }
-    store.updateSettings({ skinImage: name });
-    if (old && old !== name) dropSkinFile(old);
+    store.setSkinImage(name);
     W.broadcastDb();
     return { ok: true, name };
   });
 
   ipcMain.handle('skin:clear', () => {
-    const old = store.getDb().settings.skinImage;
-    store.updateSettings({ skinImage: null });
-    if (old) dropSkinFile(old);
+    store.setSkinImage(null);
     W.broadcastDb();
     return { ok: true };
   });
@@ -373,6 +361,8 @@ function registerIpc() {
   ipcMain.handle('update:lastError', () => updater.lastUpdateError());
 
   ipcMain.handle('update:relaunch', () => {
+    // app.exit() 会跳过正常退出时的保存回调。
+    if (!store.flushSync()) return;
     // 同上：不放锁的话新实例会被自己挡住
     app.releaseSingleInstanceLock();
     app.relaunch();
@@ -429,7 +419,15 @@ function registerIpc() {
     return store.getDb().settings;
   });
 
-  ipcMain.handle('ui:open-manager', (_e, fromCard?: boolean) => W.showManager(!!fromCard));
+  ipcMain.handle('ui:open-manager', (event, fromCard?: boolean, noteId?: string) => {
+    if (!fromCard) return W.showManager();
+    const queueId = W.queueIdOfWindow(BrowserWindow.fromWebContents(event.sender));
+    if (!queueId) return W.showManager();
+    const notes = store.getDb().queues.find((queue) => queue.id === queueId)?.notes;
+    const note = noteId === undefined ? notes?.[0] : notes?.find((item) => item.id === noteId);
+    return W.showManager(note ? { queueId, noteId: note.id } : undefined);
+  });
+  ipcMain.on('manager:ready', (event) => W.markManagerReady(event.sender));
   ipcMain.handle('ui:open-skin', () => W.showSkinWindow());
   ipcMain.handle('skin:preview-veil', (_e, veil: number) => {
     if (typeof veil === 'number' && Number.isFinite(veil)) W.previewVeil(veil);
@@ -482,15 +480,38 @@ function registerIpc() {
 function handleLoadState(): boolean {
   const state = store.getLoadState();
 
+  if (state.kind === 'unreadable') {
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: '无法读取便签数据',
+      message: '程序将退出，原文件已保留。请检查下方文件后再重新打开便签。',
+      detail: `文件：${state.file}\n原因：${state.reason}`,
+      buttons: ['退出程序'],
+      noLink: true,
+    });
+    return false;
+  }
+
   if (state.kind === 'corrupt') {
     const backup = store.getLastBackup();
+    if (!backup) {
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: '数据文件读不出来',
+        message: '便签库无法解析，备份失败。程序将退出，原文件已保留。',
+        detail: `原文件：${store.getDataFile()}\n原因：${state.reason}`,
+        buttons: ['退出程序'],
+        noLink: true,
+      });
+      return false;
+    }
     const choice = dialog.showMessageBoxSync({
       type: 'error',
       title: '数据文件读不出来',
       message: 'data.json 解析失败，程序没有覆盖它，原文件已另存一份备份。',
       detail: [
         `原因：${state.reason}`,
-        backup ? `备份位置：${backup}` : '备份失败，请手动去数据目录把 data.json 改名留档。',
+        `备份位置：${backup}`,
         '',
         '选「以空库启动」会用一份空数据继续，原始内容保留在上面的备份里。',
       ].join('\n'),
@@ -535,11 +556,6 @@ async function bootstrap() {
     app.exit(0);
     return;
   }
-  if (applied === 'cleaned') {
-    trace('update confirmed healthy, cleaned app.old');
-    updater.cleanupLeftovers();
-  }
-
   store.initStore();
   trace('store ready');
 
@@ -574,8 +590,8 @@ async function bootstrap() {
   // 捕获热键：Ctrl+Alt+V 把剪贴板直接变成一张便签。
   // 被占用就跳过 —— 一个次要功能不该阻塞启动。
   try {
-    const ok = globalShortcut.register(CAPTURE_ACCEL, () => void captureFromClipboard());
-    if (!ok) console.warn(`[capture] ${CAPTURE_ACCEL} 已被别的程序占用，剪贴板捕获不可用`);
+    captureRegistered = globalShortcut.register(CAPTURE_ACCEL, () => void captureFromClipboard());
+    if (!captureRegistered) console.warn(`[capture] ${CAPTURE_ACCEL} 已被别的程序占用，剪贴板捕获不可用`);
   } catch {
     console.warn(`[capture] ${CAPTURE_ACCEL} 注册失败`);
   }
@@ -583,6 +599,16 @@ async function bootstrap() {
   createTray(trayHandlers);
   trace('tray ready');
 
+  const state = store.getLoadState();
+  const loaded = state.kind === 'loaded' || state.kind === 'migrated' || state.kind === 'fresh';
+  if (applied === 'awaiting-confirmation' && loaded) {
+    const onNotepadReady = (event: IpcMainEvent) => {
+      if (!W.queueIdOfWindow(BrowserWindow.fromWebContents(event.sender))) return;
+      ipcMain.off('notepad:ready', onNotepadReady);
+      if (updater.confirmPendingUpdate()) trace('update confirmed healthy, cleaned app.old');
+    };
+    ipcMain.on('notepad:ready', onNotepadReady);
+  }
   W.showNotepad();
 }
 
@@ -599,15 +625,23 @@ if (!app.requestSingleInstanceLock()) {
     // Keep running in the tray. Quit is explicit via tray menu.
   });
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    if (!store.flushSync()) {
+      event.preventDefault();
+      return;
+    }
     W.setQuitting(true);
-    unregisterAll();
-    store.flushSync();
-    destroyTray();
   });
 
-  app.on('will-quit', () => {
-    unregisterAll();
-    store.flushSync();
+  app.on('will-quit', (event) => {
+    if (!store.flushSync()) {
+      event.preventDefault();
+      W.setQuitting(false);
+      W.showNotepad();
+      return;
+    }
+    unregisterHotkey();
+    if (captureRegistered) globalShortcut.unregister(CAPTURE_ACCEL);
+    destroyTray();
   });
 }

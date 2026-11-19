@@ -1,15 +1,13 @@
 export type NoteColor = 'amber' | 'rose' | 'sky' | 'mint' | 'violet';
 
+export interface NoteEditorTarget {
+  queueId: string;
+  noteId: string;
+}
+
 export interface Note {
   id: string;
-  /**
-   * 标题。列表里显示的就是它，空串时列表显示「空标题」。
-   *
-   * 和正文分成两个字段，是因为「改标题」和「改正文」是两个动作：
-   * 靠正文首行顶替的话，在正文里回车一换行，标题就断了；
-   * 而且列表里会被一整段话挤满 —— 以前就是整段 textContent 靠 CSS 截成一行。
-   */
-  title: string;
+  /** 「这一叠是关于什么的」由队列名说明；便签自己只有正文，不再有独立标题。 */
   text: string;
   color: NoteColor;
   createdAt: number;
@@ -121,7 +119,7 @@ export const DEFAULT_QUEUE_SIZE = { cardWidth: 320, cardHeight: 250 };
  * 三个窗口都要一个初值，各自手写会漂 —— 尤其是队列字段以后再加的时候。
  */
 export const EMPTY_DB: NoteDb = {
-  version: 3,
+  version: 4,
   settings: { ...DEFAULT_SETTINGS },
   queues: [
     {

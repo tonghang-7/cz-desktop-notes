@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { parseDb, migrateDb, normalizeDb, DB_VERSION } = require('../dist/main/db-format.js');
 
-/** 现役结构：一个队列一叠便签，便签带标题和图片比例。 */
+/** 现役结构（v4）：一个队列一叠便签，便签只有正文和图片比例，没有标题。 */
 const validDb = () => ({
   version: DB_VERSION,
   settings: { hotkey: 'Control+Alt+Space' },
@@ -27,7 +27,6 @@ const validDb = () => ({
       notes: [
         {
           id: 'a',
-          title: '',
           text: '第一条',
           color: 'amber',
           createdAt: 100,
@@ -36,7 +35,6 @@ const validDb = () => ({
         },
         {
           id: 'b',
-          title: '第二条的标题',
           text: '第二条',
           color: 'rose',
           createdAt: 200,
@@ -45,6 +43,53 @@ const validDb = () => ({
         },
       ],
       archive: [],
+    },
+  ],
+});
+
+/** v3 的老结构：便签带独立标题，标题和正文是两个字段。 */
+const legacyV3 = () => ({
+  version: 3,
+  settings: { hotkey: 'Control+Alt+Space' },
+  queues: [
+    {
+      id: 'q1',
+      name: '工作',
+      windowX: 10,
+      windowY: 20,
+      cardWidth: 320,
+      cardHeight: 250,
+      notes: [
+        {
+          id: 'a',
+          title: '周会',
+          text: '对一下排期',
+          color: 'amber',
+          createdAt: 100,
+          doneAt: null,
+          imageRatio: 0.58,
+        },
+        { id: 'b', title: '', text: '本来就没标题', color: 'rose', createdAt: 200, doneAt: null },
+        {
+          id: 'c',
+          title: '买牛奶',
+          text: '买牛奶\n顺路取快递',
+          color: 'sky',
+          createdAt: 300,
+          doneAt: null,
+        },
+        { id: 'd', title: '只有标题', text: '', color: 'mint', createdAt: 400, doneAt: null },
+      ],
+      archive: [
+        {
+          id: 'e',
+          title: '归档的一条',
+          text: '已经摘掉',
+          color: 'violet',
+          createdAt: 50,
+          doneAt: 60,
+        },
+      ],
     },
   ],
 });
@@ -92,14 +137,15 @@ test('正常现役数据：loaded，笔记一条不少', () => {
   assert.equal(db.version, DB_VERSION);
 });
 
-test('v2 迁移到 v3：待办补上空标题和被写死的 0.58 图片比例', () => {
+test('v2 一路迁到 v4：补过默认值，最后把标题字段整个拿掉', () => {
   const { state, db } = parseDb(JSON.stringify(legacyV2()));
   assert.equal(state.kind, 'migrated');
   assert.equal(state.from, 2);
+  assert.equal(state.to, DB_VERSION);
   assert.equal(db.version, DB_VERSION);
 
   for (const n of db.queues[0].notes) {
-    assert.equal(n.title, '', '老便签没有标题，补空串而不是 undefined');
+    assert.equal('title' in n, false, 'v4 的便签不该还有 title 键');
     assert.equal(
       n.imageRatio,
       0.58,
@@ -112,22 +158,22 @@ test('v2 迁移到 v3：待办补上空标题和被写死的 0.58 图片比例',
   assert.equal(db.queues[0].windowX, 10);
 });
 
-test('归档里的便签也补上新字段，不只补待办', () => {
+test('归档里的便签也走完整条迁移链，不只待办', () => {
   const { db } = parseDb(JSON.stringify(legacyV2()));
   assert.equal(db.queues[0].archive.length, 1);
-  assert.equal(db.queues[0].archive[0].title, '');
+  assert.equal('title' in db.queues[0].archive[0], false);
   assert.equal(db.queues[0].archive[0].imageRatio, 0.58);
   assert.equal(db.queues[0].archive[0].text, '已经摘掉的一条');
 });
 
-test('v1 一路迁到 v3：中间那步不会漏字段', () => {
+test('v1 一路迁到 v4：中间那步不会漏字段', () => {
   const { state, db } = parseDb(JSON.stringify(legacyV1()));
   assert.equal(state.kind, 'migrated');
   assert.equal(state.from, 1);
   assert.equal(db.version, DB_VERSION);
   assert.equal(db.queues[0].notes.length, 2);
   for (const n of db.queues[0].notes) {
-    assert.equal(n.title, '');
+    assert.equal('title' in n, false);
     assert.equal(n.imageRatio, 0.58);
   }
 });
@@ -144,10 +190,40 @@ test('imageRatio 越界或不是数字：收回默认值，不让坏值落盘', 
   assert.equal(parseDb(JSON.stringify(raw)).db.queues[0].notes[0].imageRatio, 0.2, '下限 0.2');
 });
 
-test('已经是 v3 的数据带标题：原样保留，不被默认值盖掉', () => {
+test('v3 → v4：老标题前移到正文第一行，一个字都不丢', () => {
+  const { state, db } = parseDb(JSON.stringify(legacyV3()));
+  assert.equal(state.kind, 'migrated');
+  assert.equal(state.from, 3);
+  assert.equal(state.to, DB_VERSION);
+
+  const notes = db.queues[0].notes;
+  assert.equal(notes[0].text, '周会\n对一下排期');
+  assert.equal(notes[1].text, '本来就没标题', '空标题不该凭空塞一行');
+  assert.equal(notes[2].text, '买牛奶\n顺路取快递', '正文已经以标题开头时不重复加');
+  assert.equal(notes[3].text, '只有标题', '正文空时标题就是正文');
+  assert.equal(notes[0].imageRatio, 0.58);
+  assert.equal(notes[2].color, 'sky');
+  for (const n of notes) assert.equal('title' in n, false);
+});
+
+test('v3 → v4：归档里的标题也前移，不会被静默抹掉', () => {
+  const { db } = parseDb(JSON.stringify(legacyV3()));
+  const a = db.queues[0].archive[0];
+  assert.equal(a.text, '归档的一条\n已经摘掉');
+  assert.equal('title' in a, false);
+  assert.equal(a.doneAt, 60);
+});
+
+test('v4 数据里的正文不会被默认值盖掉', () => {
   const { db } = parseDb(JSON.stringify(validDb()));
-  assert.equal(db.queues[0].notes[1].title, '第二条的标题');
+  assert.equal(db.queues[0].notes[1].text, '第二条');
   assert.equal(db.queues[0].notes[1].imageRatio, 0.4);
+});
+
+test('v4 数据退回旧版本：future，绝不覆盖', () => {
+  const { state } = parseDb(JSON.stringify(validDb()), 3);
+  assert.equal(state.kind, 'future');
+  assert.equal(state.version, DB_VERSION);
 });
 
 test('v1 老数据迁移成一个队列，笔记和窗口位置都跟着搬过去', () => {

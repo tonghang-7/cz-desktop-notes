@@ -15,6 +15,7 @@ import { applyAllSkin } from './skin-runtime';
 
 const stage = document.getElementById('stage') as HTMLElement;
 const countEl = document.getElementById('count') as HTMLElement;
+const queueEl = document.getElementById('queue-name') as HTMLElement;
 const btnAdd = document.getElementById('btn-add') as HTMLButtonElement;
 const btnManage = document.getElementById('btn-manage') as HTMLButtonElement;
 const btnHide = document.getElementById('btn-hide') as HTMLButtonElement;
@@ -136,27 +137,12 @@ function buildCard(note: Note): HTMLElement {
   const text = document.createElement('div');
   text.className = 'card__text';
 
-  /*
-   * 标题排在正文流里，不做绝对定位。
-   *
-   * 卡片是透明窗口里的一个元素，折纸要把它整棵子树抓进 canvas（drawElementImage）。
-   * 绝对定位会让「屏幕上的位置」和「抓出来的位置」多一条依赖，之前踩过类似的坑。
-   * 放在流里则不然：标题占几行，正文自然往下推几行，布局代码一行都不用动。
-   */
-  if (note.title.trim()) {
-    const title = document.createElement('div');
-    title.className = 'card__title';
-    title.textContent = note.title;
-    text.appendChild(title);
-  }
-
-  // 正文单独占一个 span：直接 textContent 赋值会把刚 append 的标题冲掉
   const body = document.createElement('span');
   body.className = 'card__body';
   if (note.text.trim()) {
     body.textContent = note.text;
-  } else if (!note.title.trim() && !note.image) {
-    // 有标题或图的时候不必再顶一句「空白便签」—— 标题/图本身就是内容
+  } else if (!note.image) {
+    // 有图的时候图本身就是内容，不必再顶一句「空白便签」
     body.textContent = '空白便签';
     body.classList.add('card__text--empty');
   }
@@ -248,6 +234,11 @@ function buildPeek(note: Note): HTMLElement {
 }
 
 function render() {
+  // 队列名在空叠时也要显示，所以放在手势跳过判断之前
+  const queueName = myQueue().name;
+  queueEl.textContent = queueName;
+  // 太长会被 CSS 截断，悬停能看全名
+  queueEl.title = queueName;
   if (interacting || flipping) {
     pendingRender = true;
     return;
@@ -785,8 +776,7 @@ function attachGesture(
 
       if (pendingRender) render();
       else if (onImage && note.image) void window.api.previewImage(note.image);
-      // 传 true：轻点卡片的目的就是改这张，进去直接把光标放编辑器里
-      else void window.api.openManager(true);
+      else void window.api.openManager(true, note.id);
       return;
     }
 
@@ -911,9 +901,8 @@ async function handlePaste(e: ClipboardEvent) {
 }
 
 async function addNote() {
-  await window.api.createNote('');
-  // 新建完就是准备写字，同样直接把光标放进去
-  await window.api.openManager(true);
+  const note = await window.api.createNote('');
+  if (note) await window.api.openManager(true, note.id);
 }
 
 function wire() {
@@ -980,6 +969,7 @@ async function boot() {
     if (interacting || flipping) return;
     render();
   });
+  window.api.notepadReady();
 }
 
 void boot();
